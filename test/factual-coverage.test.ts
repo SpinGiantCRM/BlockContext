@@ -47,9 +47,10 @@ test('supplemental endpoints exclude other members and other profiles; field tim
  demo.reference=async()=>({items:[{id:'EXAMPLE',name:'Example item'}],lastUpdated:now-100});
  demo.supplement=async()=>museum;
  try{
-  const service=new ProfileService(demo,cache,()=>now),reference=await service.reference('items','EXAMPLE'),section=await service.query('DemoPlayer',undefined,'museum');
+  const service=new ProfileService(demo,cache,()=>now),reference=await service.reference('items','EXAMPLE'),section=await service.query('DemoPlayer',undefined,'museum'),events=await service.query('DemoPlayer',undefined,'events');
   assert.equal(at((reference.fields as JsonObject[])[0],'observedAt'),new Date(now).toISOString());
   assert.equal((at(section,'result','data','supplement','fields') as JsonObject[])[0]?.observedAt,new Date(now).toISOString());
+  assert.ok((at(events,'result','data','supplement','fields') as JsonObject[]).every(f=>f.scope==='account'));
   assert.equal(reference.upstreamLastUpdated,now-100);
  }finally{cache.close();}
 });

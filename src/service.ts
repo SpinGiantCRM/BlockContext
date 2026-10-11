@@ -107,12 +107,18 @@ export class ProfileService {
           if(!this.upstream.supplement)throw new AppError('SUPPLEMENT_UNAVAILABLE','No supplemental endpoint for this source.');
           return {data:await this.upstream.supplement(kind,uuid,selected!.id),retrievedAt:this.now()};
         },v=>v.retrievedAt,page.mode==='cached'?'cached':'snapshot');
-        const mapped=mapGameFields(extra.value.data,'supplement.'+kind,requestedSection==='museum'?'member':'member_profile');
+        const mapped=mapGameFields(extra.value.data,'supplement.'+kind,requestedSection==='museum'?'member':requestedSection==='events'?'account':'member_profile');
         stampObservedAt(mapped,extra.value.retrievedAt);
         const holdings:JsonObject[]=[];
-        const visit=async(v:unknown,path:string,depth:number):Promise<void>=>{if(depth>12||holdings.length>=64)return;if(typeof (v as JsonObject)?.item_bytes==='string'){try{holdings.push({location:path,items:await decodeInventory({data:(v as JsonObject).item_bytes})});}catch{holdings.push({location:path,items:null,reasonCode:'decode_failed'});}return;}if(typeof (v as JsonObject)?.data==='string'){try{holdings.push({location:path,items:await decodeInventory(v)});}catch{holdings.push({location:path,items:null,reasonCode:'decode_failed'});}return;}if(v&&typeof v==='object')for(const [key,x] of Object.entries(v))await visit(x,path+'.'+key,depth+1);};
+        let discoveredContainers=0,discoveryTruncated=false;
+        const visit=async(v:unknown,path:string,depth:number):Promise<void>=>{
+          if(depth>12){discoveryTruncated=true;return;}
+          const encoded=typeof (v as JsonObject)?.item_bytes==='string'?{data:(v as JsonObject).item_bytes}:typeof (v as JsonObject)?.data==='string'?v:null;
+          if(encoded){discoveredContainers++;if(holdings.length>=64)return;try{holdings.push({location:path,items:await decodeInventory(encoded)});}catch{holdings.push({location:path,items:null,reasonCode:'decode_failed'});}return;}
+          if(v&&typeof v==='object')for(const [key,x] of Object.entries(v))await visit(x,path+'.'+key,depth+1);
+        };
         await visit(extra.value.data,'supplement.'+kind,0);
-        selected!.sections[requestedSection]={status:'partial',data:{...selected!.sections[requestedSection].data,supplement:{...mapped,retrievedAt:new Date(extra.value.retrievedAt).toISOString(),cache:extra.cache},holdings},warnings:['Supplemental endpoint scoped to this member/profile; prices, escrow totals and unexposed locations remain unknown.']};
+        selected!.sections[requestedSection]={status:'partial',data:{...selected!.sections[requestedSection].data,supplement:{...mapped,retrievedAt:new Date(extra.value.retrievedAt).toISOString(),cache:extra.cache},holdings,holdingCoverage:{expectedContainers:discoveryTruncated?null:discoveredContainers,returnedContainers:holdings.length,maximumDecodedContainers:64,complete:!discoveryTruncated&&discoveredContainers===holdings.length&&holdings.every(h=>Array.isArray(h.items)),discoveryTruncated,decodeLimitReached:discoveredContainers>64}},warnings:['Supplemental endpoint scoped to this member/profile; prices, escrow totals and unexposed locations remain unknown.']};
       }catch{selected!.sections[requestedSection].warnings.push('Supplemental endpoint unavailable; no empty Museum or zero escrow is inferred.');}
     }
     if(requestedSection==='data_contract'){
