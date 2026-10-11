@@ -9,7 +9,7 @@ root = Path(__file__).resolve().parent
 parser = argparse.ArgumentParser()
 parser.add_argument('--prism-root', type=Path, required=True)
 parser.add_argument('--instance', required=True)
-parser.add_argument('--jar', type=Path, default=root/'build/BlockContext-Collector-0.2.0-mc26.2.jar')
+parser.add_argument('--jar', type=Path, default=root/'build/BlockContext-Collector-0.2.1-mc26.2.jar')
 args = parser.parse_args()
 validate(root)
 prism = args.prism_root.resolve()

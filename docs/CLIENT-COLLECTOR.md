@@ -29,11 +29,11 @@ The collector has no automation, combat assistance, hidden-player information, d
 
 ## Startup correction
 
-Collector 0.1.0 fails during Fabric startup because its mixin package includes the ordinary client entrypoint. Replace it with 0.1.1, which keeps accessors in a dedicated `dev.blockcontext.client.mixin` package. Keep only one collector JAR in `mods`. Backend 0.8.0 accepts 0.1.0, 0.1.1 and 0.2.0 snapshots.
+Collector 0.1.0 fails during Fabric startup because its mixin package includes the ordinary client entrypoint. Replace it with 0.1.1, which keeps accessors in a dedicated `dev.blockcontext.client.mixin` package. Keep only one collector JAR in `mods`. Backend 0.8.1 accepts 0.1.0, 0.1.1, 0.2.0 and 0.2.1 snapshots.
 
 ## Build and install
 
-Collector 0.2.0 targets Minecraft **26.2**, Java **25**, Fabric Loader **0.19.5** and Fabric API **0.161.0+26.2**. Other game versions are not validated. The MCP server remains usable with standard stdio and Streamable HTTP clients on their supported systems.
+Collector 0.2.1 targets Minecraft **26.2**, Java **25**, Fabric Loader **0.19.5** and Fabric API **0.161.0+26.2**. Other game versions are not validated. The MCP server remains usable with standard stdio and Streamable HTTP clients on their supported systems.
 
 With an existing Prism Launcher instance containing those dependencies:
 
@@ -41,7 +41,7 @@ With an existing Prism Launcher instance containing those dependencies:
 python client-mod/build.py --prism-root /absolute/path/to/PrismLauncher --instance your-instance-name
 ```
 
-The build compiles against your local Minecraft libraries, runs the parser checks, and packages only BlockContext classes/resources and the MIT license. It does not redistribute Minecraft, Fabric or other mods. Put `client-mod/build/BlockContext-Collector-0.2.0-mc26.2.jar` in that instance's `minecraft/mods` directory, then restart Minecraft. Removing this JAR and restarting disables collection. Existing mods are unaffected.
+The build compiles against your local Minecraft libraries, runs the parser checks, and packages only BlockContext classes/resources and the MIT license. It does not redistribute Minecraft, Fabric or other mods. Put `client-mod/build/BlockContext-Collector-0.2.1-mc26.2.jar` in that instance's `minecraft/mods` directory, then restart Minecraft. Removing this JAR and restarting disables collection. Existing mods are unaffected.
 
 Join SkyBlock and open the menus manually. Leave each open for at least five seconds. The local output is `minecraft/blockcontext/latest.json`; on POSIX systems the directory is mode 700 and file 600. On Windows, restrict its folder/file ACLs to your account. Only an unambiguous SkyBlock profile on a `hypixel.net` server is collected. Do not send the file to a public chat or issue.
 
@@ -60,3 +60,5 @@ The supplied import helper is an example for a Linux server with a `blockcontext
 `npm run check` verifies MCP bounds, privacy, profile binding, freshness and transport behavior. `python -m unittest discover -s test -p '*_test.py'` verifies bridge projection, account isolation, rejected inputs and expiry. The Java build runs offline menu-parser checks and rejects entrypoints or ordinary classes inside reserved mixin packages. `python client-mod/startup-check.py --prism-root /absolute/path/to/PrismLauncher --instance your-instance-name` also checks the built JAR with the actual Fabric transformer and Minecraft classes in an isolated directory, without launching Minecraft or connecting to a server. These tests do not replace a real game restart and manually observed menu test. Runtime compatibility and actual menu formats must be verified on the intended instance.
 
 UI protocol details were checked against the primary [SkyHanni](https://github.com/hannibal002/SkyHanni) and [Skyblocker](https://github.com/SkyblockerMod/Skyblocker) sources, and [Coflnet's Huntaxe menu listener](https://github.com/Coflnet/SkyPlayerState/blob/3628ae74d99e5a857b74ecbe642b5158a495cf8d/Services/Listener/WeaponInHuntaxeListener.cs). Their implementation code is not included in this mod.
+
+Collector 0.2.1 recognizes the observed `Prime Huntaxe - Nex Titanum` menu title as well as the legacy `Huntaxe` title. It reads only the weapon in slot 22 with a recognized weapon rarity/type footer. Placeholder slots and similarly named trade menus remain excluded. The weapon is observed passively; the collector never clicks “take” or any other control.

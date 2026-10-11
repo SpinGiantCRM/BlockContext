@@ -57,7 +57,7 @@ public final class MenuParser {
     }
     public static String kind(String title) {
         title=clean(title);
-        if(title.matches("Huntaxe(?: \\(Slot #\\d{1,2}\\))?"))return "huntaxe";
+        if(title.equals("Prime Huntaxe - Nex Titanum")||title.matches("Huntaxe(?: \\(Slot #\\d{1,2}\\))?"))return "huntaxe";
         if(Set.of("Heart of the Mountain","Heart of the Mountain (1/5)","Commissions","The Forge","Forge","Crystal Nucleus").contains(title))return "mining";
         if(Set.of("Heart of the Forest","Heart of the Forest (1/5)","Whispers").contains(title))return "foraging";
         if(Set.of("Hunting Box","Hunting Attributes","Hunting Traps","Fusion Machine").contains(title))return "hunting";

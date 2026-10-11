@@ -20,11 +20,16 @@ public final class MenuParserTest {
         assert MenuParser.parse("Active Effects",List.of(filter,effect)).containsKey("godPotion");
         assert !MenuParser.parse("Active Effects",List.of(effect)).containsKey("godPotion");
         assert MenuParser.kind("Huntaxe")!=null;
+        assert "huntaxe".equals(MenuParser.kind("§8Prime Huntaxe - Nex Titanum"));
+        assert MenuParser.kind("Trade - Prime Huntaxe - Nex Titanum") == null;
+        assert MenuParser.kind("Prime Huntaxe - Nex Titanum trade") == null;
         assert MenuParser.kind("Trade") == null;
         assert MenuParser.kind("Banker Broadjaw") == null;
         assert MenuParser.parse("Huntaxe",List.of()).isEmpty();
         Map<String,Object> weapon=Map.of("id","HYPER_CLEAVER","reforge","fabled","enchantments",Map.of("sharpness",6));
         assert MenuParser.parse("Huntaxe",List.of(new MenuParser.ItemView(22,"HYPER_CLEAVER","Fabled Hyper Cleaver",List.of("§5EPIC DUNGEON SWORD"),weapon))).get("weapon").equals(weapon);
+        assert MenuParser.parse("Prime Huntaxe - Nex Titanum",List.of(new MenuParser.ItemView(22,"HYPER_CLEAVER","Fabled Hyper Cleaver",List.of("§5EPIC DUNGEON SWORD", "Click to take!"),weapon))).get("weapon").equals(weapon);
+        assert MenuParser.parse("Prime Huntaxe - Nex Titanum",List.of(new MenuParser.ItemView(22,"STONE","Placeholder",List.of("Click to take!"),Map.of()))).isEmpty();
         assert MenuParser.parse("Huntaxe",List.of(new MenuParser.ItemView(23,"HYPER_CLEAVER","Fabled Hyper Cleaver",List.of("§5EPIC DUNGEON SWORD"),weapon))).isEmpty();
         var balance=new MenuParser.ItemView(1,null,"Balance",List.of("Current balance: 12,345.67 coins"),Map.of());
         assert MenuParser.parse("Personal Bank Account",List.of(balance)).get("personalBankCoins").equals(12345.67);
