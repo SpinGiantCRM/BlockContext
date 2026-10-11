@@ -58,3 +58,7 @@ Use `skyblock_auction_quote` with `{"item":"HYPERION","scrolls":["IMPLOSION_SCRO
 
 Pet and dungeon conversions cite a pinned community data revision. Catacombs levels stop at 50 and show overflow XP separately. The next unlock describes the next normal-floor level requirement from a cited patch; it does not certify Combat level, previous-floor completion or later rule changes. Modern wardrobe items preserve set and piece identifiers. Missing backpacks or bank fields remain unknown when Hypixel does not expose them.
 
+
+## Cookie and potion snapshots
+
+The stats section includes API-reported Booster Cookie active/inactive status, active and paused potion-effect lists, safe effect identifiers, levels and reported duration ticks when present. `false` and known empty lists differ from missing data. Lists are bounded to 256 entries each and paginated in detailed stats; the overview shows at most ten of each. Field coverage identifies missing or malformed entries. Dedicated God Potion status and cookie/God Potion timers remain unknown; individual effects do not establish a God Potion. Saved tick durations are not live countdowns, and no wall-clock expiry is inferred. These fields use the existing profile request and its cache timestamps.

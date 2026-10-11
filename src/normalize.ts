@@ -8,6 +8,7 @@ import { backpacks } from './backpacks.js';
 import { loadouts } from './loadouts.js';
 import { petsSection, dungeonsSection } from './progression.js';
 import { greenhouse } from './greenhouse.js';
+import { buffs } from './buffs.js';
 
 function section(data: JsonObject, present: boolean, warnings: string[] = []): Section {
   return { status: !present ? 'unavailable' : warnings.length ? 'partial' : 'available', data, warnings: !present ? ['Not available in the API response; this does not mean zero.', ...warnings] : warnings };
@@ -33,6 +34,10 @@ export async function normalizeProfile(raw: JsonObject, uuid: string, catalog: J
   const fairy=number(at(m,'fairy_soul','total_collected'));
   const stats = section({ skyBlockExperience: statsXp!==null&&statsXp>=0?statsXp:null, skyBlockLevel: statsXp === null || statsXp < 0 ? null : Math.floor(statsXp / 100), experienceToNextSkyBlockLevel: statsXp === null || statsXp < 0 ? null : 100 - statsXp % 100, fairySoulsCollected: fairy!==null&&fairy>=0?fairy:null,
     fieldCoverage:{level:{status:statsXp!==null&&statsXp>=0?'available':'unavailable',reasonCode:statsXp!==null&&statsXp>=0?null:'not_exposed_or_invalid'},fairySouls:{status:fairy!==null&&fairy>=0?'available':'unavailable',reasonCode:fairy!==null&&fairy>=0?null:'not_exposed_or_invalid'}} }, statsXp!==null&&statsXp>=0||fairy!==null&&fairy>=0, statsXp===null||statsXp<0||fairy===null||fairy<0?['Some SkyBlock level or fairy soul fields are unavailable or invalid.']:[]);
+  const buff=buffs(m), statsPresent=stats.status!=='unavailable';
+  stats.data={...stats.data,...buff.data,fieldCoverage:{...object(stats.data.fieldCoverage),...buff.fieldCoverage}};
+  stats.status=!statsPresent&&!buff.anyAvailable?'unavailable':stats.status!=='available'||buff.incomplete?'partial':'available';
+  stats.warnings.push(...buff.warnings);
   const purse = number(at(m, 'currencies', 'coin_purse'));
   const bank = number(at(raw, 'banking', 'balance'));
   const personalBank = number(at(m,'profile','bank_account')), motes=number(at(m,'currencies','motes_purse'));

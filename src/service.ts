@@ -17,7 +17,7 @@ export class ProfileService {
     const offset = page.offset ?? 0, limit = page.limit ?? 50;
     if (!Number.isInteger(offset) || offset < 0 || offset > 4096 || !Number.isInteger(limit) || limit < 1 || limit > 100) throw new AppError('INVALID_PAGE', 'Use an offset from 0 to 4096 and a limit from 1 to 100.');
     const namespace = this.upstream.source;
-    const cacheNamespace = `v7:${namespace}`;
+    const cacheNamespace = `v8:${namespace}`;
     const identity = await this.cache.get(`${cacheNamespace}:identity:${player.toLowerCase()}`, 24 * 3600_000, 24 * 3600_000, () => this.upstream.resolve(player));
     const uuid = identity.value.uuid;
     const result = await this.cache.get<ProfileSet>(`${cacheNamespace}:profiles:${uuid}`, 300_000, 1800_000, async () => {
@@ -95,6 +95,8 @@ export class ProfileService {
     }
     const summary: JsonObject = {};
     for (const name of ['stats', 'skills', 'currencies', 'slayers', 'dungeons'] as const) summary[name] = selected!.sections[name];
+    const stats=selected!.sections.stats, activeEffects=stats.data.activePotionEffects as JsonObject[]|null, pausedEffects=stats.data.pausedPotionEffects as JsonObject[]|null;
+    summary.stats={...stats,data:{...stats.data,activePotionEffects:activeEffects?.slice(0,10)??null,pausedPotionEffects:pausedEffects?.slice(0,10)??null,potionEffectsInOverview:{limit:10,activeTruncated:(activeEffects?.length??0)>10,pausedTruncated:(pausedEffects?.length??0)>10}}};
     const activePets = (selected!.sections.pets.data.pets as JsonObject[] | null)?.filter(p => p.active) ?? null;
     summary.pets = { status: selected!.sections.pets.status, activePets: activePets?.slice(0, 5) ?? null, activePetCount: Number((selected!.sections.pets.data.fieldCoverage as {activeFlags?:{unknownCount?:number}})?.activeFlags?.unknownCount??0)>0?null:activePets?.length??null, knownActivePetCount:activePets?.length??null, fieldCoverage:selected!.sections.pets.data.fieldCoverage, warnings:selected!.sections.pets.warnings };
     const armor = selected!.sections.equipment.data.armor as unknown[] | null;

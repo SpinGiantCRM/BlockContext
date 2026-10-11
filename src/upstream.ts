@@ -115,7 +115,9 @@ export class HypixelUpstream implements Upstream {
       const fields = ['leveling', 'fairy_soul', 'player_data', 'currencies', 'slayer', 'dungeons', 'pets_data', 'collection', 'crafted_generators', 'inventory', 'accessory_bag_storage', 'jacobs_contest', 'garden_player_data', 'foraging'];
       const limited = Object.fromEntries(fields.filter(k => member[k] !== undefined).map(k => [k, member[k]]));
       if (member.loadout !== undefined) limited.loadout = member.loadout!==null&&typeof member.loadout==='object'&&!Array.isArray(member.loadout)?{ armor: at(member,'loadout','armor'), equipment: at(member,'loadout','equipment') }:null;
-      if (at(member,'profile','bank_account') !== undefined) limited.profile = { bank_account: at(member,'profile','bank_account') };
+      const profileFields = ['bank_account','cookie_buff_active'];
+      const ownProfile = Object.fromEntries(profileFields.filter(k=>at(member,'profile',k)!==undefined).map(k=>[k,at(member,'profile',k)]));
+      if (Object.keys(ownProfile).length) limited.profile = ownProfile;
       if (member.rift !== undefined) limited.rift = { access: { consumed_prism: at(member, 'rift', 'access', 'consumed_prism') ?? false } };
       if (member.nether_island_player_data !== undefined) limited.nether_island_player_data = { abiphone: { active_contacts: at(member, 'nether_island_player_data', 'abiphone', 'active_contacts') } };
       return { profile_id: p.profile_id, cute_name: p.cute_name, selected: p.selected, game_mode: p.game_mode, members: { [uuid]: limited }, banking: p.banking===undefined ? undefined : { balance: at(p, 'banking', 'balance') } };
