@@ -42,7 +42,22 @@ export function withDisplayedWhispers(api, client) {
                 reports.push({ currency: f.label === 'Forest Whispers' ? 'forest' : 'desert', value, unit: f.label, status: row.currentStateVerified === true ? 'known' : 'stale', source: 'client_observation', sourceKey: key, observedAt: row.observedAt, currentStateVerified: row.currentStateVerified === true });
             }
     }
-    const current = reports.filter(r => r.currency === 'forest' && r.currentStateVerified === true), values = new Set(current.map(r => r.value));
-    const available = values.size === 1 ? { ...current[0], scope: 'member', reasonCode: null } : values.size > 1 ? { ...field(null, 'client.foraging', 'Forest Whispers'), reasonCode: 'conflicting_current_displayed_balances' } : api.available;
-    return { ...api, available, apiAvailable: api.available, displayedBalances: reports, reconciliation: { ...object(api.reconciliation), displayedBalanceObserved: reports.length > 0, currentDisplayedBalanceVerified: reports.some(r => r.currentStateVerified === true), crossSourceEqualityVerified: false } };
+    const balance = (kind, previous) => {
+        const all = reports.filter(r => r.currency === kind), current = all.filter(r => r.currentStateVerified === true), values = new Set(current.map(r => r.value));
+        if (values.size === 1)
+            return { ...current[0], scope: 'member', reasonCode: null };
+        if (values.size > 1)
+            return { ...field(null, 'client.foraging', kind + ' Whispers'), reasonCode: 'conflicting_current_displayed_balances' };
+        if (object(previous).status === 'known')
+            return previous;
+        const latest = [...all].sort((a, b) => String(b.observedAt).localeCompare(String(a.observedAt)))[0];
+        if (!latest)
+            return previous;
+        const sameTime = all.filter(r => r.observedAt === latest.observedAt);
+        if (new Set(sameTime.map(r => r.value)).size > 1)
+            return { ...field(null, 'client.foraging', kind + ' Whispers'), reasonCode: 'conflicting_saved_displayed_balances' };
+        return { ...latest, status: 'stale', scope: 'member', currentStateVerified: false, reasonCode: 'last_displayed_balance_not_verified_current' };
+    };
+    const available = balance('forest', api.available), forest = object(api.forest), desert = object(api.desert);
+    return { ...api, available, apiAvailable: api.available, forest: { ...forest, available: balance('forest', forest.available), apiAvailable: forest.available }, desert: { ...desert, available: balance('desert', desert.available), apiAvailable: desert.available }, displayedBalances: reports, reconciliation: { ...object(api.reconciliation), displayedBalanceObserved: reports.length > 0, currentDisplayedBalanceVerified: reports.some(r => r.currentStateVerified === true), crossSourceEqualityVerified: false } };
 }

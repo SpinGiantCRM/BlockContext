@@ -42,7 +42,7 @@ function whisperReport(value:number,current=true):JsonObject{return {observedAt:
 test('Whisper display reconciliation keeps API arithmetic unverified and ignores stale displays',()=>{
  const api=whisperBalances({foraging_core:{whispers:{forest:{total:13000,'1':{spent:11000}}}}});
  assert.equal(at(withDisplayedWhispers(api,{observations:{foraging:whisperReport(2000)}}),'available','value'),2000);
- assert.equal(at(withDisplayedWhispers(api,{observations:{foraging:whisperReport(2000,false)}}),'available','status'),'unknown');
+ const saved=withDisplayedWhispers(api,{observations:{foraging:whisperReport(2000,false)}});assert.equal(at(saved,'available','status'),'stale');assert.equal(at(saved,'available','value'),2000);assert.equal(at(saved,'apiAvailable','status'),'unknown');
  assert.equal(at(withDisplayedWhispers(api,{observations:{foraging:whisperReport(2000),tabStats:whisperReport(1900)}}),'available','status'),'unknown');
  assert.equal(at(withDisplayedWhispers(api,{observations:{foraging:whisperReport(2000)}}),'reconciliation','crossSourceEqualityVerified'),false);
 });
