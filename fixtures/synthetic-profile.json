@@ -1,0 +1,31 @@
+{
+  "fixtureNotice": "Invented values for local tests only. These are NOT Z3L0R's real SkyBlock stats.",
+  "profiles": [
+    {
+      "profile_id": "11111111111111111111111111111111",
+      "cute_name": "Strawberry",
+      "selected": true,
+      "banking": { "balance": 2500000 },
+      "members": {
+        "ab8fd9cdc4fa4f4e8571c5aa1e07e614": {
+          "leveling": { "experience": 12345 },
+          "player_data": { "experience": { "SKILL_COMBAT": 400, "SKILL_MINING": 200, "SKILL_FARMING": 0, "SKILL_HUNTING": 60 } },
+          "currencies": { "coin_purse": 125000 },
+          "slayer": { "slayer_bosses": { "zombie": { "xp": 1000, "boss_kills_tier_0": 10 } } },
+          "dungeons": { "dungeon_types": { "catacombs": { "experience": 1000, "highest_tier_completed": 2, "tier_completions": { "1": 5, "2": 1 } } }, "player_classes": { "mage": { "experience": 500 } } },
+          "pets_data": { "pets": [ { "type": "SHEEP", "tier": "EPIC", "exp": 200000, "active": true, "heldItem": "PET_ITEM_TEXTBOOK" } ] },
+          "collection": { "WHEAT": 10000, "COBBLESTONE": 20000 },
+          "crafted_generators": ["WHEAT_1", "WHEAT_2", "COBBLESTONE_1"],
+          "accessory_bag_storage": { "selected_power": "sighted", "highest_magical_power": 200 }
+        }
+      }
+    },
+    {
+      "profile_id": "22222222222222222222222222222222",
+      "cute_name": "Apple",
+      "selected": false,
+      "game_mode": "ironman",
+      "members": { "ab8fd9cdc4fa4f4e8571c5aa1e07e614": { "leveling": { "experience": 100 }, "currencies": { "coin_purse": 0 } } }
+    }
+  ]
+}
