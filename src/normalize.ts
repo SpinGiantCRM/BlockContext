@@ -74,9 +74,14 @@ export async function normalizeProfile(raw: JsonObject, uuid: string, catalog: J
   storageCoverage.wardrobeItems = legacyWardrobe ? (legacyWardrobe.items===null?'unavailable':'available') : modernArmor.status;
   storageCoverage.sackCounts = sacksPresent ? 'available' : 'unavailable';
   storageCoverage.backpackItems = backpack.status;
+  // No verified Hypixel public-API format for the profile-bound absorbed weapon.
+  // The hunting toolkit being empty does not establish an empty Huntaxe.
+  const huntaxeCoverage = {status:'unavailable',reasonCode:'no_verified_public_api_field',source:'Hypixel profile API'};
   const equipmentSection = section({
+    huntaxeStoredWeapon: {...huntaxeCoverage,weapon:null,reason:'The profile-bound absorbed weapon has no verified public API field. Missing Hunting data does not establish an empty Huntaxe.'},
     fieldCoverage: Object.fromEntries([['armor',armor],['equipment',equipment],['carriedItems',carried],['enderChestItems',enderChest],['personalVaultItems',vault],['wardrobeItems',wardrobe],['equipmentWardrobeItems',modernEquipment]].map(([name,value])=>{const v=value as typeof wardrobe;return [name,{status:'status' in v?v.status:v.items===null?'unavailable':'available',reasonCode:v.reasonCode,source:name==='wardrobeItems'?(legacyWardrobe?'inventory.wardrobe_contents':'loadout.armor'):name==='equipmentWardrobeItems'?'loadout.equipment':'inventory'}];}).concat([
       ['backpackItems',{status:backpack.status,reasonCode:backpack.status==='available'?null:at(m,'inventory','backpack_contents')===undefined?'not_exposed':'decode_or_invalid_api_value',source:'inventory.backpack_contents'}],
+      ['huntaxeStoredWeapon',huntaxeCoverage],
       ['sackCounts',{status:sacksPresent?'available':'unavailable',reasonCode:sacksPresent?null:'not_exposed_or_invalid',source:'inventory.sacks_counts'}]
     ])),
     wardrobeSets: legacyWardrobe ? null : modernArmor.sets, equipmentWardrobeSets: modernEquipment.sets,
@@ -88,7 +93,7 @@ export async function normalizeProfile(raw: JsonObject, uuid: string, catalog: J
     backpackItemCount: backpack.status === 'available' ? backpack.items!.length : null, knownBackpackItemCount: backpack.items?.length ?? null,
     storageCoverage, storageWarnings: [...enderChest.warnings.map(w => `Ender Chest: ${w}`), ...vault.warnings.map(w => `Personal vault: ${w}`), ...wardrobe.warnings.map(w => `Wardrobe: ${w}`), ...modernEquipment.warnings, ...backpack.warnings],
     itemCatalogLastUpdated: number(itemsCatalog.lastUpdated), itemCatalogAvailable: Object.keys(object(itemsCatalog.items)).length > 0
-  }, armor.items !== null || equipment.items !== null || carried.items !== null || wardrobe.items !== null || modernEquipment.items !== null || backpack.items !== null, [...armor.warnings.map(w => `Armor: ${w}`), ...equipment.warnings.map(w => `Equipment: ${w}`), ...carried.warnings.map(w => `Carried inventory: ${w}`), ...(Object.values(storageCoverage).some(v=>v!=='available')?['Some storage fields are unavailable or partial; inspect fieldCoverage and storageWarnings.']:[])]);
+  }, armor.items !== null || equipment.items !== null || carried.items !== null || wardrobe.items !== null || modernEquipment.items !== null || backpack.items !== null, [...armor.warnings.map(w => `Armor: ${w}`), ...equipment.warnings.map(w => `Equipment: ${w}`), ...carried.warnings.map(w => `Carried inventory: ${w}`), 'The absorbed Huntaxe weapon remains unknown; the public API snapshot cannot verify its identity, upgrades or whether the slot is empty.', ...(Object.values(storageCoverage).some(v=>v!=='available')?['Some storage fields are unavailable or partial; inspect fieldCoverage and storageWarnings.']:[])]);
   const storage = object(m.accessory_bag_storage);
   const bagItems = describeItems(accessories.items, itemsCatalog);
   const diagnostics = accessoryDiagnostics(bagItems, describeItems(carried.items, itemsCatalog));

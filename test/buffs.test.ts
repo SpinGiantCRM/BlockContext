@@ -59,3 +59,17 @@ test('real HTTP MCP client discovers the new stats coverage and receives explici
     const q=await client.callTool({name:'skyblock_profile_section',arguments:{player:'Z3L0R',profile:'Strawberry',section:'stats'}});assert.ok(!q.isError);assert.equal(at(q.structuredContent,'result','data','boosterCookie','active'),false);assert.deepEqual(at(q.structuredContent,'result','data','activePotionEffects'),[]);assert.equal(at(q.structuredContent,'result','data','pausedPotionEffects'),null);assert.equal(at(q.structuredContent,'result','data','fieldCoverage','pausedPotionEffects','reasonCode'),'not_exposed');assert.equal(at(q.structuredContent,'result','status'),'partial');
   }finally{await client.close();server.close();server.closeAllConnections();await once(server,'close');cache.close();}
 });
+
+test('missing, empty and unverified Hunting data cannot become an empty or API-verified absorbed weapon',async()=>{
+  for(const toolkit of [undefined,{}, {weapon:{id:'HYPER_CLEAVER',modifier:'fabled',lore:'unverified-secret'}}]){
+    const up=new DemoUpstream(),raw=await up.profiles(DEMO_UUID),m=object(at(raw[0],'members',DEMO_UUID));m.foraging={hunting_toolkit:toolkit};up.profiles=async()=>raw;
+    const cache=new RequestCache();
+    try{
+      const q=await new ProfileService(up,cache).query('Z3L0R','Strawberry','equipment');
+      assert.equal(at(q,'result','data','huntaxeStoredWeapon','status'),'unavailable');
+      assert.equal(at(q,'result','data','huntaxeStoredWeapon','weapon'),null);
+      assert.equal(at(q,'result','data','fieldCoverage','huntaxeStoredWeapon','reasonCode'),'no_verified_public_api_field');
+      assert.ok(!JSON.stringify(q).includes('unverified-secret'));assert.ok(!JSON.stringify(q).includes('HYPER_CLEAVER'));
+    }finally{cache.close();}
+  }
+});

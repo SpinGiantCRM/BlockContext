@@ -17,7 +17,7 @@ export class ProfileService {
     const offset = page.offset ?? 0, limit = page.limit ?? 50;
     if (!Number.isInteger(offset) || offset < 0 || offset > 4096 || !Number.isInteger(limit) || limit < 1 || limit > 100) throw new AppError('INVALID_PAGE', 'Use an offset from 0 to 4096 and a limit from 1 to 100.');
     const namespace = this.upstream.source;
-    const cacheNamespace = `v8:${namespace}`;
+    const cacheNamespace = `v9:${namespace}`;
     const identity = await this.cache.get(`${cacheNamespace}:identity:${player.toLowerCase()}`, 24 * 3600_000, 24 * 3600_000, () => this.upstream.resolve(player));
     const uuid = identity.value.uuid;
     const result = await this.cache.get<ProfileSet>(`${cacheNamespace}:profiles:${uuid}`, 300_000, 1800_000, async () => {
