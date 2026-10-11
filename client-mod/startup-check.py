@@ -38,5 +38,5 @@ with tempfile.TemporaryDirectory(prefix='blockcontext-fabric-test-') as director
     shutil.copy2(fabric,game/'mods'/fabric.name)
     cp=os.pathsep.join(map(str,libraries))
     source=root/'src/test/java/dev/blockcontext/test/FabricStartupTest.java'
-    subprocess.run(['javac','--release','25','-proc:none','-classpath',cp,'-d',str(classes),str(source)],check=True)
+    subprocess.run(['javac','-encoding','UTF-8','--release','25','-proc:none','-classpath',cp,'-d',str(classes),str(source)],check=True)
     subprocess.run(['java','-Xmx512m','-Djava.awt.headless=true','-Dfabric.gameVersion=26.2','-classpath',str(classes)+os.pathsep+cp,'dev.blockcontext.test.FabricStartupTest',str(game)],cwd=game,check=True,timeout=60)

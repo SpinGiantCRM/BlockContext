@@ -21,9 +21,9 @@ with zipfile.ZipFile(fabric) as z:
 libraries=[p for p in (prism/'libraries').rglob('*.jar') if '/minecraft/' not in str(p) and '/intermediary/' not in str(p) and not p.name.endswith('-sources.jar')]
 libraries=[prism/'libraries/com/mojang/minecraft/26.2/minecraft-26.2-client.jar',*libraries,*dependencies.glob('*.jar')]
 sources=sorted((root/'src/main/java').rglob('*.java'))
-subprocess.run(['javac','--release','25','-proc:none','-classpath',os.pathsep.join(map(str,libraries)),'-d',str(classes),*map(str,sources)],check=True)
+subprocess.run(['javac','-encoding','UTF-8','--release','25','-proc:none','-classpath',os.pathsep.join(map(str,libraries)),'-d',str(classes),*map(str,sources)],check=True)
 test=root/'src/test/java/dev/blockcontext/client/MenuParserTest.java'
-subprocess.run(['javac','--release','25','-classpath',str(classes),'-d',str(classes),str(test)],check=True)
+subprocess.run(['javac','-encoding','UTF-8','--release','25','-classpath',str(classes),'-d',str(classes),str(test)],check=True)
 subprocess.run(['java','-ea','-classpath',str(classes),'dev.blockcontext.client.MenuParserTest'],check=True)
 output=build/'BlockContext-Collector-0.2.0-mc26.2.jar'
 with zipfile.ZipFile(output,'w',zipfile.ZIP_DEFLATED) as z:
