@@ -2,6 +2,7 @@ import { parentPort } from 'node:worker_threads';
 import { gunzipSync } from 'node:zlib';
 import { parseUncompressed, simplify } from 'prismarine-nbt';
 import { at, number, object } from './types.js';
+import { auctionVariants } from './auction-variants.js';
 
 // Batched parsing avoids one worker startup for every auction. No lore, sellers,
 // bidder identities, timestamps embedded in NBT, or credentials leave this worker.
@@ -26,7 +27,7 @@ parentPort!.on('message',(values: unknown[]) => {
         if (typeof pet.type !== 'string' || !/^[A-Z0-9_]{1,64}$/.test(pet.type)) return null;
         petType = pet.type;
       }
-      return { id: extra.id, count: item.Count, reforge: modifier, stars, petType };
+      return { id: extra.id, count: item.Count, reforge: modifier, stars, petType, variants: auctionVariants(extra.id,extra) };
     } catch { return null; }
   });
   parentPort!.postMessage(results);

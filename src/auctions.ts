@@ -2,9 +2,11 @@ import { Worker } from 'node:worker_threads';
 import { RequestCache } from './cache.js';
 import { AppError, at, number, object, type JsonObject, type Upstream } from './types.js';
 
-type Listing = [id:string, coins:number, count:number, rarity:string, reforge:string|null, stars:number, end:number, petType:string|null];
+import { SCROLLS, WITHER_BLADES } from './auction-variants.js';
+
+type Listing = [id:string, coins:number, count:number, rarity:string, reforge:string|null, stars:number, end:number, petType:string|null, variants:JsonObject];
 interface Index { listings: Listing[]; updatedAt: number; retrievedAt: number; totalPages: number; scannedPages: number; totalAuctions: number; scannedAuctions: number; complete: boolean; invalidListings: number; warnings: string[] }
-export interface AuctionFilters { rarity?: string; reforge?: string; stars?: number; petType?: string }
+export interface AuctionFilters { rarity?: string; reforge?: string; stars?: number; petType?: string; petLevel?: number; scrolls?: string[] }
 class Decoder {
   private readonly worker = new Worker(new URL('./auction-worker.js',import.meta.url),{env:{},execArgv:[],resourceLimits:{maxOldGenerationSizeMb:96,stackSizeMb:2}});
   private failed = false;
@@ -31,14 +33,20 @@ export class AuctionService {
   constructor(private readonly upstream: Upstream, private readonly cache: RequestCache, private readonly now = Date.now, private readonly budgetMs = 45_000) {}
   async quote(item: string, filters: AuctionFilters = {}): Promise<JsonObject> {
     const rarities = ['COMMON','UNCOMMON','RARE','EPIC','LEGENDARY','MYTHIC','DIVINE','SPECIAL','VERY_SPECIAL'];
-    if (!/^[a-zA-Z0-9_:.-]{1,96}$/.test(item) || (filters.rarity !== undefined && !rarities.includes(filters.rarity)) || (filters.reforge !== undefined && !/^[a-z0-9_]{1,64}$/.test(filters.reforge)) || (filters.stars !== undefined && (!Number.isInteger(filters.stars) || filters.stars<0 || filters.stars>15)) || (filters.petType !== undefined && !/^[A-Z0-9_]{1,64}$/.test(filters.petType))) throw new AppError('INVALID_AUCTION_QUERY','Use an exact item ID and supported rarity, reforge, stars or pet type filters.');
+    if (!/^[a-zA-Z0-9_:.-]{1,96}$/.test(item) || (filters.rarity !== undefined && !rarities.includes(filters.rarity)) || (filters.reforge !== undefined && !/^[a-z0-9_]{1,64}$/.test(filters.reforge)) || (filters.stars !== undefined && (!Number.isInteger(filters.stars) || filters.stars<0 || filters.stars>15)) || (filters.petType !== undefined && !/^[A-Z0-9_]{1,64}$/.test(filters.petType))) throw new AppError('INVALID_AUCTION_QUERY','Use an exact item ID and supported rarity, reforge, stars, pet type, pet level or scroll filters.');
     const id = item.toUpperCase();
-    if (filters.petType !== undefined && id !== 'PET') throw new AppError('INVALID_AUCTION_QUERY','petType is supported only for item PET.');
-    const snapshot = await this.cache.get(`v5:${this.upstream.source}:auction-index`,60_000,180_000,()=>this.scan(),v=>Math.min(v.retrievedAt,v.updatedAt));
+    if ((filters.petType !== undefined || filters.petLevel !== undefined) && id !== 'PET') throw new AppError('INVALID_AUCTION_QUERY','Pet filters are supported only for item PET.');
+    if (filters.petLevel !== undefined && (!Number.isInteger(filters.petLevel)||filters.petLevel<1||filters.petLevel>200)) throw new AppError('INVALID_AUCTION_QUERY','Pet level must be an integer from 1 to 200.');
+    if (filters.scrolls !== undefined && (!WITHER_BLADES.has(id)||!Array.isArray(filters.scrolls)||filters.scrolls.length>3||filters.scrolls.some(v=>!SCROLLS.includes(v as typeof SCROLLS[number]))||new Set(filters.scrolls).size!==filters.scrolls.length)) throw new AppError('INVALID_AUCTION_QUERY','Use an exact set of supported ability scrolls for a Wither blade.');
+    const snapshot = await this.cache.get(`v6:${this.upstream.source}:auction-index`,60_000,180_000,()=>this.scan(),v=>Math.min(v.retrievedAt,v.updatedAt));
     const data = snapshot.value; this.validateTime(data.updatedAt);
-    const matches = data.listings.filter(([itemId,,,,,,,petType]) => itemId===id && (filters.petType===undefined || petType===filters.petType)).filter(l=>l[6]>this.now() && (filters.rarity===undefined || l[3]===filters.rarity) && (filters.reforge===undefined || l[4]===filters.reforge) && (filters.stars===undefined || l[5]===filters.stars));
+    const candidates = data.listings.filter(([itemId,,,,,,,petType]) => itemId===id && (filters.petType===undefined || petType===filters.petType)).filter(l=>l[6]>this.now() && (filters.rarity===undefined || l[3]===filters.rarity) && (filters.reforge===undefined || l[4]===filters.reforge) && (filters.stars===undefined || l[5]===filters.stars));
+    const unknownVariantListingCount = candidates.filter(l=>(filters.petLevel!==undefined&&l[8].petLevel===null)||(filters.scrolls!==undefined&&l[8].scrolls===null)).length;
+    const matches = candidates.filter(l=>(filters.petLevel===undefined||l[8].petLevel===filters.petLevel)&&(filters.scrolls===undefined||(Array.isArray(l[8].scrolls)&&JSON.stringify(l[8].scrolls)===JSON.stringify([...filters.scrolls].sort()))));
+    const complete = data.complete && unknownVariantListingCount===0;
     const sorted = matches.sort((a,b)=>a[1]-b[1]);
-    const warnings = [...data.warnings,'Active BIN asking prices are not completed sales or a valuation of your owned item. Enchantments, upgrades beyond stars, attributes, skins, pet level and other variants can differ. Listings can be bought or cancelled after the snapshot. Gross SkyBlock coins exclude fees.'];
+    const warnings = [...data.warnings,'Active BIN asking prices are not completed sales or a valuation of your owned item. Selected scrolls and pet level filters are exact matches, but enchantments, upgrades beyond stars, attributes, skins, pet held items and other variants can differ. A fully scrolled weapon or level-200 pet is not necessarily fully maxed. Listings can be bought or cancelled after the snapshot. Gross SkyBlock coins exclude fees.'];
+    if (unknownVariantListingCount) warnings.push('Some candidate listings have unreadable variant details; filtered global lowest prices are unknown.');
     if (!data.complete) warnings.push('The scan is incomplete. Only observed prices are available; the global lowest BIN price is unknown.');
     if (snapshot.warning) warnings.push(snapshot.warning);
     if (this.upstream.source==='synthetic_demo') warnings.unshift('SYNTHETIC DEMO: this auction snapshot is invented.');
@@ -46,10 +54,10 @@ export class AuctionService {
     return {
       metadata: { source: this.upstream.source, retrievedAt:new Date(data.retrievedAt).toISOString(), upstreamUpdatedAt:new Date(data.updatedAt).toISOString(), ageSeconds:Math.max(0,Math.floor((this.now()-data.updatedAt)/1000)), cache:snapshot.cache, stale:snapshot.cache==='stale', freshnessPolicy:{refreshAfterSeconds:60,maximumSnapshotAgeSeconds:180,refreshOnlyOnRequest:true}, warnings },
       item:{id}, filters, currency:'SkyBlock coins', feesIncluded:false, priceKind:'active_bin_asking_price',
-      coverage:{status:data.complete?'complete':'partial',scannedPages:data.scannedPages,totalPages:data.totalPages,scannedAuctions:data.scannedAuctions,totalAuctions:data.totalAuctions,invalidListings:data.invalidListings},
-      matchedListingCount:matches.length, lowestBinCoins:data.complete?lowestObserved:null, lowestObservedBinCoins:lowestObserved,
-      lowestUnitCoins:data.complete && matches.length ? matches.reduce((minimum,l)=>Math.min(minimum,l[1]/l[2]),Infinity):null,
-      listings:sorted.slice(0,5).map(l=>({coins:l[1],itemCount:l[2],unitCoins:l[1]/l[2],rarity:l[3],reforge:l[4],stars:l[5],endsAt:new Date(l[6]).toISOString(),petType:l[7]}))
+      coverage:{status:complete?'complete':'partial',scanStatus:data.complete?'complete':'partial',variantStatus:unknownVariantListingCount?'partial':'complete',unknownVariantListingCount,scannedPages:data.scannedPages,totalPages:data.totalPages,scannedAuctions:data.scannedAuctions,totalAuctions:data.totalAuctions,invalidListings:data.invalidListings},
+      matchedListingCount:matches.length, lowestBinCoins:complete?lowestObserved:null, lowestObservedBinCoins:lowestObserved,
+      lowestUnitCoins:complete && matches.length ? matches.reduce((minimum,l)=>Math.min(minimum,l[1]/l[2]),Infinity):null,
+      listings:sorted.slice(0,5).map(l=>({coins:l[1],itemCount:l[2],unitCoins:l[1]/l[2],rarity:l[3],reforge:l[4],stars:l[5],endsAt:new Date(l[6]).toISOString(),petType:l[7],...l[8]}))
     };
   }
   private validateTime(value: unknown) {
@@ -77,7 +85,7 @@ export class AuctionService {
       bins.forEach((a,i)=>{
         const item = parsed[i];
         if (!item || number(a.starting_bid)===null || Number(a.starting_bid)<=0 || typeof a.tier!=='string' || !/^[A-Z_ ]{1,16}$/.test(a.tier)) {index.complete=false;index.invalidListings++;return;}
-        index.listings.push([String(item.id),Number(a.starting_bid),Number(item.count),a.tier.replaceAll(' ','_'),item.reforge as string|null,Number(item.stars),Number(a.end),item.petType as string|null]);
+        index.listings.push([String(item.id),Number(a.starting_bid),Number(item.count),a.tier.replaceAll(' ','_'),item.reforge as string|null,Number(item.stars),Number(a.end),item.petType as string|null,object(item.variants)]);
       });
       return true;
     };

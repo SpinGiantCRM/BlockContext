@@ -8,7 +8,7 @@ Use **stdio** for a local MCP client, or **Streamable HTTP** on your own PC/serv
 
 Every installation belongs to its operator: your infrastructure, your registered Hypixel application, your credentials and your latest-value cache. There is no shared public BlockContext endpoint. A distributed package does not grant access to another operator's server or API key.
 
-See [self-hosting and client configuration](docs/SELF-HOSTING.md) and [Hypixel access setup](docs/HYPIXEL-SETUP.md).
+See [self-hosting and client configuration](docs/SELF-HOSTING.md), [Hypixel access setup](docs/HYPIXEL-SETUP.md), and [optional local logging](docs/LOGGING.md).
 
 ```sh
 npm ci
@@ -21,9 +21,9 @@ This starts a **synthetic demo** at `http://127.0.0.1:3008/mcp`; it does not con
 ## Tools
 
 - `skyblock_profile_context`: compact overview, effective skills/caps, currencies, gear, magical power and Garden coverage.
-- `skyblock_profile_section`: detailed stats, skills, currencies, slayers, dungeons, pets, collections, minions, equipment, accessories or Garden. Equipment includes backpacks labelled by container. Garden includes player-specific discovered/analyzed Greenhouse mutations.
+- `skyblock_profile_section`: detailed stats, skills, currencies, slayers, dungeons, pets, collections, minions, equipment, accessories or Garden. Equipment includes backpacks labelled by container and modern armor/equipment wardrobe sets. Currencies distinguish personal from shared bank balances; fieldCoverage explains missing or unreadable data. Pets have calculated levels and progress to their species cap (including level-200 dragons); Dungeons include effective Catacombs/class levels and the next normal-floor level gate. Garden includes player-specific discovered/analyzed Greenhouse mutations.
 - `skyblock_market_quote`: Bazaar instant-buy/sell depth for an exact item ID and quantity, plus official NPC sell value.
-- `skyblock_auction_quote`: active BIN asking prices for an exact item ID, optionally filtered by rarity, reforge, stars or pet type. Checks page coverage before returning a global lowest price.
+- `skyblock_auction_quote`: active BIN asking prices for an exact item ID, optionally filtered by rarity, reforge, stars, pet type, exact pet level or exact ability scroll set. Listings include pet rarity/XP/level/held item/skin and Wither blade scrolls. Checks page and filtered-variant coverage before returning a global lowest price.
 
 Lists use `offset`/`limit` (default 50, maximum 100). Inspect per-list pagination, including nested Greenhouse mutation lists. All tools are read-only. No trades, gameplay actions, coin spending or player-history tracking.
 
@@ -35,7 +35,7 @@ Missing API data is unknown, not zero. Backpack contents are decoded within byte
 
 Magical power is a bag-only snapshot calculation outside Dungeons, using pinned upgrade/alias rules, effective rarity and available bonuses. Unknown rules or required fields reduce calculation coverage. Historical highest power is separate. Farming/Taming/Runecrafting caps use available member/rank data. Foraging gates can leave the personal cap unknown. Crafted minions are unlock history, not currently placed minions.
 
-Bazaar quotes walk the visible top 30 order levels; incomplete depth cannot provide a complete fill price. They refresh after 45 seconds and expire after 180 seconds. Auction scans refresh after 60 seconds, expire after 180 seconds from the upstream timestamp, and are bounded to 128 pages, two concurrent reads and 45 seconds. A changed snapshot or missing/corrupt page leaves only observed prices; no global minimum is claimed. Cached listings past their end time are removed from quotes. Active asking prices are not completed sales or an owned-item valuation: enchantments, attributes, skins, pet levels and other variants may differ. Gross virtual coin values exclude fees.
+Bazaar quotes walk the visible top 30 order levels; incomplete depth cannot provide a complete fill price. They refresh after 45 seconds and expire after 180 seconds. Auction scans refresh after 60 seconds, expire after 180 seconds from the upstream timestamp, and are bounded to 128 pages, two concurrent reads and 45 seconds. A changed snapshot or missing/corrupt page leaves only observed prices; no global minimum is claimed. Cached listings past their end time are removed from quotes. Active asking prices are not completed sales or an owned-item valuation: enchantments, attributes, skins and other variants may differ. Fully scrolled and level-200 filters do not certify all other upgrades as maxed. Unknown variant details prevent a global minimum for that filtered quote. Gross virtual coin values exclude fees.
 
 The HTTP listener is loopback-only and checks Host/Origin, request sizes and concurrency. Use a private tunnel, SSH forwarding or an authenticated MCP gateway for remote access. Do not expose the unauthenticated backend directly.
 
@@ -50,4 +50,11 @@ The smoke check requires a running HTTP server and accepts `PORT`, `BLOCKCONTEXT
 
 ## Sources
 
-Live profiles, skills/items, Garden, Bazaar and auctions come directly from [Hypixel's API](https://api.hypixel.net/). Follow the [API policies](https://developer.hypixel.net/policies/). Incremental Garden thresholds and accessory rules are pinned from the MIT-licensed [NotEnoughUpdates data repository](https://github.com/NotEnoughUpdates/NotEnoughUpdates-REPO/tree/159bb4e7ccc3250780e5daa7525eeb7f13be67e4), with source metadata and its original license in `fixtures/domain`. No remote code or automatic rule updater is used.
+Live profiles, skills/items, Garden, Bazaar and auctions come directly from [Hypixel's API](https://api.hypixel.net/). Follow the [API policies](https://developer.hypixel.net/policies/). Incremental Garden thresholds, accessory rules, and pet/Catacombs XP tables are pinned from the MIT-licensed [NotEnoughUpdates data repository](https://github.com/NotEnoughUpdates/NotEnoughUpdates-REPO/tree/159bb4e7ccc3250780e5daa7525eeb7f13be67e4), with source metadata and its original license in `fixtures/domain`. No remote code or automatic rule updater is used.
+
+## Comparing variants
+
+Use `skyblock_auction_quote` with `{"item":"HYPERION","scrolls":["IMPLOSION_SCROLL","SHADOW_WARP_SCROLL","WITHER_SHIELD_SCROLL"]}` for the exact three-scroll set, or `{"item":"PET","petType":"GOLDEN_DRAGON","petLevel":200}` for level-200 Golden Dragons. An empty `scrolls` array selects unscrolled blades; omit the filter to include all scroll sets. Integer pet levels use the petInfo rarity XP curve, which can differ from a boosted display rarity.
+
+Pet and dungeon conversions cite a pinned community data revision. Catacombs levels stop at 50 and show overflow XP separately. The next unlock describes the next normal-floor level requirement from a cited patch; it does not certify Combat level, previous-floor completion or later rule changes. Modern wardrobe items preserve set and piece identifiers. Missing backpacks or bank fields remain unknown when Hypixel does not expose them.
+

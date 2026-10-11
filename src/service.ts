@@ -17,7 +17,7 @@ export class ProfileService {
     const offset = page.offset ?? 0, limit = page.limit ?? 50;
     if (!Number.isInteger(offset) || offset < 0 || offset > 4096 || !Number.isInteger(limit) || limit < 1 || limit > 100) throw new AppError('INVALID_PAGE', 'Use an offset from 0 to 4096 and a limit from 1 to 100.');
     const namespace = this.upstream.source;
-    const cacheNamespace = `v5:${namespace}`;
+    const cacheNamespace = `v6:${namespace}`;
     const identity = await this.cache.get(`${cacheNamespace}:identity:${player.toLowerCase()}`, 24 * 3600_000, 24 * 3600_000, () => this.upstream.resolve(player));
     const uuid = identity.value.uuid;
     const result = await this.cache.get<ProfileSet>(`${cacheNamespace}:profiles:${uuid}`, 300_000, 1800_000, async () => {
@@ -96,11 +96,11 @@ export class ProfileService {
     const summary: JsonObject = {};
     for (const name of ['stats', 'skills', 'currencies', 'slayers', 'dungeons'] as const) summary[name] = selected!.sections[name];
     const activePets = (selected!.sections.pets.data.pets as JsonObject[] | null)?.filter(p => p.active) ?? null;
-    summary.pets = { status: selected!.sections.pets.status, activePets: activePets?.slice(0, 5) ?? null, activePetCount: activePets?.length ?? null };
+    summary.pets = { status: selected!.sections.pets.status, activePets: activePets?.slice(0, 5) ?? null, activePetCount: Number((selected!.sections.pets.data.fieldCoverage as {activeFlags?:{unknownCount?:number}})?.activeFlags?.unknownCount??0)>0?null:activePets?.length??null, knownActivePetCount:activePets?.length??null, fieldCoverage:selected!.sections.pets.data.fieldCoverage, warnings:selected!.sections.pets.warnings };
     const armor = selected!.sections.equipment.data.armor as unknown[] | null;
     const equipment = selected!.sections.equipment.data.equipment as unknown[] | null;
-    summary.equipment = { status: selected!.sections.equipment.status, armor: armor?.slice(0, 8) ?? null, equipment: equipment?.slice(0, 8) ?? null, armorTotalItems: armor?.length ?? null, equipmentTotalItems: equipment?.length ?? null, storageCoverage: selected!.sections.equipment.data.storageCoverage,
-      storageItemCounts: Object.fromEntries(['carriedItems', 'enderChestItems', 'personalVaultItems', 'wardrobeItems'].map(key => [key, (selected!.sections.equipment.data[key] as unknown[] | null)?.length ?? null])),
+    summary.equipment = { status: selected!.sections.equipment.status, armor: armor?.slice(0, 8) ?? null, equipment: equipment?.slice(0, 8) ?? null, armorTotalItems: armor?.length ?? null, equipmentTotalItems: equipment?.length ?? null, storageCoverage: selected!.sections.equipment.data.storageCoverage, fieldCoverage:selected!.sections.equipment.data.fieldCoverage, wardrobeItemCount:selected!.sections.equipment.data.wardrobeItemCount, knownWardrobeItemCount:selected!.sections.equipment.data.knownWardrobeItemCount,
+      storageItemCounts: Object.fromEntries(['carriedItems', 'enderChestItems', 'personalVaultItems', 'wardrobeItems', 'equipmentWardrobeItems'].map(key => [key, (selected!.sections.equipment.data[key] as unknown[] | null)?.length ?? null])),
       backpackItemCount:selected!.sections.equipment.data.backpackItemCount, knownBackpackItemCount:selected!.sections.equipment.data.knownBackpackItemCount,
       warnings: selected!.sections.equipment.warnings };
     summary.accessories = { status: selected!.sections.accessories.status, selectedPower: selected!.sections.accessories.data.selectedPower, highestRecordedMagicalPower: selected!.sections.accessories.data.highestRecordedMagicalPower, currentMagicalPower: selected!.sections.accessories.data.currentMagicalPower, calculationStatus: selected!.sections.accessories.data.calculationStatus, magicalPowerBreakdown: selected!.sections.accessories.data.breakdown, bagItemCount: selected!.sections.accessories.data.bagItemCount,

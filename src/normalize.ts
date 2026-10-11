@@ -5,20 +5,23 @@ import { accessoryDiagnostics, describeItems, magicalPower } from './accessories
 import { gardenSection } from './garden.js';
 import { uuidValue } from './upstream.js';
 import { backpacks } from './backpacks.js';
+import { loadouts } from './loadouts.js';
+import { petsSection, dungeonsSection } from './progression.js';
 import { greenhouse } from './greenhouse.js';
 
 function section(data: JsonObject, present: boolean, warnings: string[] = []): Section {
   return { status: !present ? 'unavailable' : warnings.length ? 'partial' : 'available', data, warnings: !present ? ['Not available in the API response; this does not mean zero.', ...warnings] : warnings };
 }
 
-async function inventory(member: JsonObject, keys: string[][]): Promise<{ items: Item[] | null; warnings: string[] }> {
+async function inventory(member: JsonObject, keys: string[][]): Promise<{ items: Item[] | null; warnings: string[]; reasonCode: string | null }> {
   for (const path of keys) {
     const value = at(member, 'inventory', ...path);
-    if (at(value, 'data') === undefined) continue;
-    try { return { items: await decodeInventory(value), warnings: [] }; }
-    catch { return { items: null, warnings: ['Inventory data was present but could not be decoded safely.'] }; }
+    if (value===undefined) continue;
+    if (at(value, 'data')===undefined) return {items:null,reasonCode:'invalid_api_value',warnings:['Inventory field is present but its encoding is missing or invalid.']};
+    try { return { items: await decodeInventory(value), warnings: [], reasonCode: null }; }
+    catch { return { items: null, reasonCode: 'decode_or_safety_limit', warnings: ['Inventory data was present but could not be decoded safely.'] }; }
   }
-  return { items: null, warnings: ['Inventory data not present; it may be disabled or unavailable.'] };
+  return { items: null, reasonCode: 'not_exposed', warnings: ['Inventory data not present; it may be disabled or unavailable.'] };
 }
 
 export async function normalizeProfile(raw: JsonObject, uuid: string, catalog: JsonObject, itemsCatalog: JsonObject = {}, playerMetadata: JsonObject = {}): Promise<NormalizedProfile> {
@@ -27,16 +30,21 @@ export async function normalizeProfile(raw: JsonObject, uuid: string, catalog: J
   if (!id || memberValue === undefined || !Object.keys(object(memberValue)).length) throw new AppError('UPSTREAM_INVALID', 'The requested profile or membership is invalid.');
   const m = object(memberValue);
   const statsXp = number(at(m, 'leveling', 'experience'));
-  const stats = section({ skyBlockExperience: statsXp, skyBlockLevel: statsXp === null || statsXp < 0 ? null : Math.floor(statsXp / 100), experienceToNextSkyBlockLevel: statsXp === null || statsXp < 0 ? null : 100 - statsXp % 100, fairySoulsCollected: number(at(m, 'fairy_soul', 'total_collected')) }, statsXp !== null);
+  const fairy=number(at(m,'fairy_soul','total_collected'));
+  const stats = section({ skyBlockExperience: statsXp!==null&&statsXp>=0?statsXp:null, skyBlockLevel: statsXp === null || statsXp < 0 ? null : Math.floor(statsXp / 100), experienceToNextSkyBlockLevel: statsXp === null || statsXp < 0 ? null : 100 - statsXp % 100, fairySoulsCollected: fairy!==null&&fairy>=0?fairy:null,
+    fieldCoverage:{level:{status:statsXp!==null&&statsXp>=0?'available':'unavailable',reasonCode:statsXp!==null&&statsXp>=0?null:'not_exposed_or_invalid'},fairySouls:{status:fairy!==null&&fairy>=0?'available':'unavailable',reasonCode:fairy!==null&&fairy>=0?null:'not_exposed_or_invalid'}} }, statsXp!==null&&statsXp>=0||fairy!==null&&fairy>=0, statsXp===null||statsXp<0||fairy===null||fairy<0?['Some SkyBlock level or fairy soul fields are unavailable or invalid.']:[]);
   const purse = number(at(m, 'currencies', 'coin_purse'));
   const bank = number(at(raw, 'banking', 'balance'));
-  const currencies = section({ purseCoins: purse, sharedProfileBankCoins: bank, motes: number(at(m, 'currencies', 'motes_purse')) }, purse !== null || bank !== null);
+  const personalBank = number(at(m,'profile','bank_account')), motes=number(at(m,'currencies','motes_purse'));
+  const moneyFields={purseCoins:purse,sharedProfileBankCoins:bank,personalBankCoins:personalBank,motes};
+  const moneyRaw={purseCoins:at(m,'currencies','coin_purse'),sharedProfileBankCoins:at(raw,'banking','balance'),personalBankCoins:at(m,'profile','bank_account'),motes:at(m,'currencies','motes_purse')};
+  const moneySources={purseCoins:'member.currencies.coin_purse',sharedProfileBankCoins:'profile.banking.balance',personalBankCoins:'member.profile.bank_account',motes:'member.currencies.motes_purse'};
+  const moneyCoverage=Object.fromEntries(Object.entries(moneyFields).map(([key,value])=>[key,{status:value!==null&&value>=0?'available':'unavailable',reasonCode:moneyRaw[key as keyof typeof moneyRaw]===undefined?'not_exposed':value===null||value<0?'invalid_api_value':null,source:moneySources[key as keyof typeof moneySources]}]));
+  const currencies = section({ ...Object.fromEntries(Object.entries(moneyFields).map(([k,v])=>[k,v!==null&&v>=0?v:null])), fieldCoverage:moneyCoverage }, Object.values(moneyFields).some(v=>v!==null&&v>=0), Object.values(moneyCoverage).some(v=>v.status!=='available')?['Some balances are not exposed or invalid; they remain unknown. Personal and shared profile bank balances are separate. Missing API data alone does not establish whether a privacy setting is disabled.']:[]);
   const bosses = object(at(m, 'slayer', 'slayer_bosses'));
   const slayers = section({ bosses: Object.fromEntries(Object.entries(bosses).slice(0, 32).map(([k, v]) => [k.slice(0, 64), { experience: number(at(v, 'xp')), killsByTier: numericMap(Object.fromEntries(Object.entries(object(v)).filter(([key]) => key.startsWith('boss_kills_tier_'))), 64) }])) }, at(m, 'slayer', 'slayer_bosses') !== undefined);
-  const dungeonTypes = object(at(m, 'dungeons', 'dungeon_types'));
-  const dungeons = section({ types: Object.fromEntries(Object.entries(dungeonTypes).slice(0, 16).map(([k, v]) => [k.slice(0, 64), { experience: number(at(v, 'experience')), highestTierCompleted: number(at(v, 'highest_tier_completed')), completions: numericMap(at(v, 'tier_completions'), 32) }])), classes: Object.fromEntries(Object.entries(object(at(m, 'dungeons', 'player_classes'))).slice(0, 16).map(([k, v]) => [k.slice(0, 64), { experience: number(at(v, 'experience')) }])) }, at(m, 'dungeons', 'dungeon_types') !== undefined);
-  const rawPets = at(m, 'pets_data', 'pets');
-  const pets = section({ pets: Array.isArray(rawPets) ? rawPets.slice(0, 512).map(v => ({ type: text(at(v, 'type')), tier: text(at(v, 'tier')), experience: number(at(v, 'exp')), active: typeof at(v, 'active') === 'boolean' ? at(v, 'active') : null, heldItem: text(at(v, 'heldItem')) })) : null }, Array.isArray(rawPets));
+  const dungeons = dungeonsSection(m);
+  const pets = petsSection(at(m,'pets_data','pets'));
   const collections = section({ collected: numericMap(m.collection) }, m.collection !== undefined);
   const generators = at(m, 'player_data', 'crafted_generators') ?? m.crafted_generators;
   const minions = section({ craftedGenerators: Array.isArray(generators) ? generators.slice(0, 2048).map(v => text(v)).filter(Boolean) : null, placedMinions: null }, Array.isArray(generators), ['Crafted generators are unlock history, not the currently placed minion setup.']);
@@ -47,22 +55,35 @@ export async function normalizeProfile(raw: JsonObject, uuid: string, catalog: J
   const accessories = await inventory(m, [['bag_contents', 'talisman_bag'], ['talisman_bag']]);
   const enderChest = await inventory(m, [['ender_chest_contents']]);
   const vault = await inventory(m, [['personal_vault_contents']]);
-  const wardrobe = await inventory(m, [['wardrobe_contents']]);
+  const invalidLoadout=m.loadout!==undefined&&(m.loadout===null||typeof m.loadout!=='object'||Array.isArray(m.loadout));
+  const modernArmor = await loadouts(invalidLoadout?null:at(m,'loadout','armor'),'armor');
+  const modernEquipment = await loadouts(invalidLoadout?null:at(m,'loadout','equipment'),'equipment');
+  const legacyWardrobe = !invalidLoadout&&at(m,'loadout','armor')===undefined ? await inventory(m, [['wardrobe_contents']]) : null;
+  const wardrobe = legacyWardrobe ?? modernArmor;
   const backpack = await backpacks(at(m,'inventory','backpack_contents'));
   const sacksRaw = at(m, 'inventory', 'sacks_counts');
   const sacksPresent = sacksRaw !== null && typeof sacksRaw === 'object' && !Array.isArray(sacksRaw);
   const sacks = sacksPresent ? numericMap(sacksRaw) : null;
   const storageCoverage = Object.fromEntries([['enderChestItems', enderChest], ['personalVaultItems', vault], ['wardrobeItems', wardrobe]].map(([name,value]) => [name, (value as typeof vault).items === null ? 'unavailable' : 'available']));
+  storageCoverage.equipmentWardrobeItems = modernEquipment.status;
+  storageCoverage.wardrobeItems = legacyWardrobe ? (legacyWardrobe.items===null?'unavailable':'available') : modernArmor.status;
   storageCoverage.sackCounts = sacksPresent ? 'available' : 'unavailable';
   storageCoverage.backpackItems = backpack.status;
   const equipmentSection = section({
+    fieldCoverage: Object.fromEntries([['armor',armor],['equipment',equipment],['carriedItems',carried],['enderChestItems',enderChest],['personalVaultItems',vault],['wardrobeItems',wardrobe],['equipmentWardrobeItems',modernEquipment]].map(([name,value])=>{const v=value as typeof wardrobe;return [name,{status:'status' in v?v.status:v.items===null?'unavailable':'available',reasonCode:v.reasonCode,source:name==='wardrobeItems'?(legacyWardrobe?'inventory.wardrobe_contents':'loadout.armor'):name==='equipmentWardrobeItems'?'loadout.equipment':'inventory'}];}).concat([
+      ['backpackItems',{status:backpack.status,reasonCode:backpack.status==='available'?null:at(m,'inventory','backpack_contents')===undefined?'not_exposed':'decode_or_invalid_api_value',source:'inventory.backpack_contents'}],
+      ['sackCounts',{status:sacksPresent?'available':'unavailable',reasonCode:sacksPresent?null:'not_exposed_or_invalid',source:'inventory.sacks_counts'}]
+    ])),
+    wardrobeSets: legacyWardrobe ? null : modernArmor.sets, equipmentWardrobeSets: modernEquipment.sets,
+    equipmentWardrobeItems: describeItems(modernEquipment.items,itemsCatalog),
+    wardrobeItemCount: storageCoverage.wardrobeItems==='available'?wardrobe.items!.length:null, knownWardrobeItemCount:wardrobe.items?.length??null,
     armor: describeItems(armor.items, itemsCatalog), equipment: describeItems(equipment.items, itemsCatalog), carriedItems: describeItems(carried.items, itemsCatalog),
     enderChestItems: describeItems(enderChest.items, itemsCatalog), personalVaultItems: describeItems(vault.items, itemsCatalog), wardrobeItems: describeItems(wardrobe.items, itemsCatalog), sackCounts: sacks,
     backpackItems: backpack.items === null ? null : backpack.items.map(item => ({ ...describeItems([item],itemsCatalog)![0], containerId: item.containerId })), backpackContainers: backpack.containers,
     backpackItemCount: backpack.status === 'available' ? backpack.items!.length : null, knownBackpackItemCount: backpack.items?.length ?? null,
-    storageCoverage, storageWarnings: [...enderChest.warnings.map(w => `Ender Chest: ${w}`), ...vault.warnings.map(w => `Personal vault: ${w}`), ...wardrobe.warnings.map(w => `Wardrobe: ${w}`), ...backpack.warnings],
+    storageCoverage, storageWarnings: [...enderChest.warnings.map(w => `Ender Chest: ${w}`), ...vault.warnings.map(w => `Personal vault: ${w}`), ...wardrobe.warnings.map(w => `Wardrobe: ${w}`), ...modernEquipment.warnings, ...backpack.warnings],
     itemCatalogLastUpdated: number(itemsCatalog.lastUpdated), itemCatalogAvailable: Object.keys(object(itemsCatalog.items)).length > 0
-  }, armor.items !== null || equipment.items !== null || carried.items !== null, [...armor.warnings.map(w => `Armor: ${w}`), ...equipment.warnings.map(w => `Equipment: ${w}`), ...carried.warnings.map(w => `Carried inventory: ${w}`)]);
+  }, armor.items !== null || equipment.items !== null || carried.items !== null || wardrobe.items !== null || modernEquipment.items !== null || backpack.items !== null, [...armor.warnings.map(w => `Armor: ${w}`), ...equipment.warnings.map(w => `Equipment: ${w}`), ...carried.warnings.map(w => `Carried inventory: ${w}`), ...(Object.values(storageCoverage).some(v=>v!=='available')?['Some storage fields are unavailable or partial; inspect fieldCoverage and storageWarnings.']:[])]);
   const storage = object(m.accessory_bag_storage);
   const bagItems = describeItems(accessories.items, itemsCatalog);
   const diagnostics = accessoryDiagnostics(bagItems, describeItems(carried.items, itemsCatalog));

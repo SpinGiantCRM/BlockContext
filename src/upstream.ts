@@ -1,3 +1,4 @@
+import { Diagnostics } from './diagnostics.js';
 import { AppError, at, number, object, text, type Identity, type JsonObject, type Upstream } from './types.js';
 
 export const UUID = /^[0-9a-f]{32}$/i;
@@ -36,15 +37,21 @@ export class HypixelUpstream implements Upstream {
   private resetAt = 0;
   private queue: Promise<unknown> = Promise.resolve();
   private readonly localLimit: number;
+  private readonly diagnostics:Diagnostics;
   private readonly keyExpiresAt: number | undefined;
-  constructor(private readonly key: string, private readonly request: typeof fetch = fetch, private readonly now = Date.now, options: { requestsPerFiveMinutes?: number; keyExpiresAt?: string } = {}) {
+  constructor(private readonly key: string, private readonly request: typeof fetch = fetch, private readonly now = Date.now, options: { requestsPerFiveMinutes?: number; keyExpiresAt?: string; diagnostics?:Diagnostics } = {}) {
+    this.diagnostics=options.diagnostics ?? new Diagnostics();
     this.localLimit = options.requestsPerFiveMinutes ?? 30;
     if (!Number.isInteger(this.localLimit) || this.localLimit < 1 || this.localLimit > 10000) throw new AppError('INVALID_CONFIG', 'The five-minute request budget must be an integer from 1 to 10000.');
     this.keyExpiresAt = options.keyExpiresAt ? Date.parse(options.keyExpiresAt) : undefined;
     if (options.keyExpiresAt && (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(options.keyExpiresAt) || !Number.isFinite(this.keyExpiresAt))) throw new AppError('INVALID_CONFIG', 'The key expiry must be an ISO date with an explicit timezone.');
   }
   private async get(url: string, authenticated: boolean, signal?: AbortSignal): Promise<JsonObject> {
+    const path=new URL(url).pathname;
+    const endpoint=path.startsWith('/users/profiles/minecraft/')?'identity':({'/v2/skyblock/profiles':'profiles','/v2/resources/skyblock/skills':'skills','/v2/resources/skyblock/items':'items','/v2/player':'rank','/v2/skyblock/garden':'garden','/v2/skyblock/bazaar':'bazaar','/v2/skyblock/auctions':'auctions'} as Record<string,string>)[path] ?? 'unknown';
     const send = async () => {
+      const started=performance.now(); let status:number|null=null;
+      try {
       if (authenticated) {
         if (!this.key) throw new AppError('HYPIXEL_KEY_REQUIRED', 'Set HYPIXEL_API_KEY privately in the local .env file to enable live mode.');
         const now = this.now(); this.calls = this.calls.filter(t => now - t < 300_000);
@@ -60,6 +67,7 @@ export class HypixelUpstream implements Upstream {
       try {
         response = await this.request(url, { headers: authenticated ? { 'API-Key': this.key } : {}, signal: signal ? AbortSignal.any([signal,AbortSignal.timeout(10_000)]) : AbortSignal.timeout(10_000), redirect: 'error' });
       } catch { throw new AppError('UPSTREAM_UNAVAILABLE', 'The upstream service could not be reached.', true); }
+      status=response.status;
       if (authenticated) {
         const rem = response.headers.get('ratelimit-remaining'), reset = response.headers.get('ratelimit-reset');
         if (rem !== null && /^\d+$/.test(rem)) this.remaining = Number(rem);
@@ -77,7 +85,9 @@ export class HypixelUpstream implements Upstream {
       if (!response.ok) throw new AppError('UPSTREAM_UNAVAILABLE', 'The upstream service returned an unsuccessful response.', response.status >= 500);
       const data = await limitedJson(response);
       if (data.success === false) throw new AppError('UPSTREAM_REJECTED', 'Hypixel rejected the request.');
+      this.diagnostics.upstream(endpoint,performance.now()-started,status,undefined,authenticated?this.remaining:null);
       return data;
+      } catch(error) { this.diagnostics.upstream(endpoint,performance.now()-started,status,error,authenticated?this.remaining:null); throw error; }
     };
     if (!authenticated) return send();
     // Serialize authenticated requests so headers describe the actual shared budget.
@@ -101,9 +111,11 @@ export class HypixelUpstream implements Upstream {
       const p = object(value); const member = object(at(p, 'members', uuid));
       const fields = ['leveling', 'fairy_soul', 'player_data', 'currencies', 'slayer', 'dungeons', 'pets_data', 'collection', 'crafted_generators', 'inventory', 'accessory_bag_storage', 'jacobs_contest', 'garden_player_data', 'foraging'];
       const limited = Object.fromEntries(fields.filter(k => member[k] !== undefined).map(k => [k, member[k]]));
+      if (member.loadout !== undefined) limited.loadout = member.loadout!==null&&typeof member.loadout==='object'&&!Array.isArray(member.loadout)?{ armor: at(member,'loadout','armor'), equipment: at(member,'loadout','equipment') }:null;
+      if (at(member,'profile','bank_account') !== undefined) limited.profile = { bank_account: at(member,'profile','bank_account') };
       if (member.rift !== undefined) limited.rift = { access: { consumed_prism: at(member, 'rift', 'access', 'consumed_prism') ?? false } };
       if (member.nether_island_player_data !== undefined) limited.nether_island_player_data = { abiphone: { active_contacts: at(member, 'nether_island_player_data', 'abiphone', 'active_contacts') } };
-      return { profile_id: p.profile_id, cute_name: p.cute_name, selected: p.selected, game_mode: p.game_mode, members: { [uuid]: limited }, banking: number(at(p, 'banking', 'balance')) === null ? undefined : { balance: at(p, 'banking', 'balance') } };
+      return { profile_id: p.profile_id, cute_name: p.cute_name, selected: p.selected, game_mode: p.game_mode, members: { [uuid]: limited }, banking: p.banking===undefined ? undefined : { balance: at(p, 'banking', 'balance') } };
     });
   }
   async skillCatalog(): Promise<JsonObject> { return this.get('https://api.hypixel.net/v2/resources/skyblock/skills', false); }
