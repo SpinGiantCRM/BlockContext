@@ -61,7 +61,8 @@ test('disk cache survives restart, replaces values, and expires without history'
     assert.deepEqual((await cache.get('p', 10, 100, async () => ({ coins: 99 }))).value, { coins: 1 });
     now = 11; await cache.get('p', 10, 100, async () => ({ coins: 2 }));
     const db = new DatabaseSync(path); assert.equal(db.prepare('SELECT COUNT(*) AS n FROM cache').get()!.n, 1); db.close();
-    assert.equal(statSync(path).mode & 0o777, 0o600);
+    // Windows protects files with ACLs rather than POSIX mode bits.
+    if (process.platform !== 'win32') assert.equal(statSync(path).mode & 0o777, 0o600);
     now = 112; assert.equal((await cache.get('p', 10, 100, async () => ({ coins: 3 }))).cache, 'miss');
   } finally { cache.close(); rmSync(dir, { recursive: true, force: true }); }
 });

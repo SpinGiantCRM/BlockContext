@@ -4,7 +4,7 @@ BlockContext supports standard **stdio** and **Streamable HTTP**, independently 
 
 ## Requirements and installation
 
-Use Node.js 24 or later on Linux, macOS or Windows. Tests currently verify Linux; the stdio launcher and file paths use Node APIs without requiring a shell. Windows/macOS native execution has not yet been exercised. Serverless/edge runtimes that lack Node workers and persistent SQLite are not supported.
+Use Node.js 24 or later on Linux, macOS or Windows. The repository CI exercises both MCP transports and the feature tests on Linux, macOS and Windows. See the [portability results](https://github.com/SpinGiantCRM/BlockContext/actions/workflows/ci.yml). The stdio launcher and file paths use Node APIs without requiring a shell. Serverless/edge runtimes that lack Node workers and persistent SQLite are not supported.
 
 Extract the package into a directory you control. From that directory:
 
@@ -13,7 +13,7 @@ npm ci
 npm run build
 ```
 
-Runtime archives already contain `dist/src`; source archives also include the tests. Dependencies are pinned in the lockfile. Open `.env.example`, save a private copy as `.env`, and configure your own Hypixel application using [the setup guide](HYPIXEL-SETUP.md). Keep credentials readable only by your account. Use your OS file permissions; never include the private file in source control, an archive or client output.
+Runtime archives already contain `dist/src`; source archives also include the tests. Dependencies are pinned in the lockfile. Open `.env.example`, save a private copy as `.env`, and configure your own Hypixel application using [the setup guide](HYPIXEL-SETUP.md). Keep credentials readable only by your account. Use your OS file permissions; never include the private file in source control, an archive or client output. On Unix, restrict credential files to mode 600 and their directory to 700. On Windows, use the folder/file Security settings to restrict the private configuration and cache directory to your account; Unix chmod mode bits do not enforce Windows ACLs.
 
 ## Local clients: stdio
 
