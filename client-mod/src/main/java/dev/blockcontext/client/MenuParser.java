@@ -36,9 +36,37 @@ public final class MenuParser {
         }
         return out;
     }
+    public static Map<String,Object> storedWeapon(List<String> lore) {
+        List<String> lines=lore.stream().map(MenuParser::clean).filter(l->l.startsWith("Stored Weapon: ")).toList();
+        if(lines.size()!=1)return Map.of();
+        Matcher m=Pattern.compile("^Stored Weapon: ([A-Za-z][A-Za-z '-]{0,95}?)(?: ([✪★]{1,15}))?$").matcher(lines.get(0));
+        if(!m.matches()||Set.of("None","No Weapon").contains(m.group(1)))return Map.of();
+        Map<String,Object> out=new LinkedHashMap<>();out.put("status","partial");out.put("displayName",m.group(1).trim());out.put("stars",m.group(2)==null?null:m.group(2).length());out.put("completeWeaponDetails",false);return out;
+    }
+    private static final Set<String> FACT_LABELS=Set.of("Level","Tier","Experience","HotM Experience","HotF Experience","Mithril Powder","Gemstone Powder","Glacite Powder","Tokens of the Mountain","Tokens of the Forest","Mining Speed","Mining Fortune","Foraging Fortune","Hunting Fortune","Charm Chance","Pristine","Breaking Power","Magical Power","Bonus Commissions Remaining","Daily Bonus Commissions","Charges","Remaining Charges","Copper","Bits","Motes","Whispers","Chocolate","Progress","Cost","Next Level Cost","Powder Cost","Fuel","Organic Matter","Item Tier","Collection","Health","Defense","Strength","Crit Damage","Crit Chance","Intelligence","Speed","Sea Creature Chance","Fishing Speed");
+    public static List<Map<String,Object>> numericFacts(List<String> lines) {
+        List<Map<String,Object>> out=new ArrayList<>();
+        for(String raw:lines) {
+            Matcher m=Pattern.compile("^([A-Za-z ]{1,40}): ([+]?[-]?[0-9][0-9,]*(?:[.][0-9]+)?)(?:/([0-9][0-9,]*(?:[.][0-9]+)?))?(?: (XP|coins|Powder|Whispers|Bits|Motes))?(%)?$").matcher(clean(raw).replaceFirst("^(Level|Tier) ([0-9])", "$1: $2"));
+            if(!m.matches()||!FACT_LABELS.contains(m.group(1)))continue;
+            double value=Double.parseDouble(m.group(2).replace(",",""));Double maximum=m.group(3)==null?null:Double.parseDouble(m.group(3).replace(",",""));
+            if(!Double.isFinite(value)||Math.abs(value)>1e15||maximum!=null&&(!Double.isFinite(maximum)||maximum<0||maximum>1e15))continue;
+            Map<String,Object> fact=new LinkedHashMap<>();fact.put("label",m.group(1));fact.put("value",value);fact.put("maximum",maximum);fact.put("unit",m.group(5)!=null?"%":m.group(4));out.add(fact);if(out.size()==64)break;
+        }
+        return out;
+    }
     public static String kind(String title) {
         title=clean(title);
         if(title.matches("Huntaxe(?: \\(Slot #\\d{1,2}\\))?"))return "huntaxe";
+        if(Set.of("Heart of the Mountain","Heart of the Mountain (1/5)","Commissions","The Forge","Forge","Crystal Nucleus").contains(title))return "mining";
+        if(Set.of("Heart of the Forest","Heart of the Forest (1/5)","Whispers").contains(title))return "foraging";
+        if(Set.of("Hunting Box","Hunting Attributes","Hunting Traps","Fusion Machine").contains(title))return "hunting";
+        if(Set.of("Experimentation Table","Experiments","Hoppity's Hunt","Chocolate Factory").contains(title))return "dailies";
+        if(Set.of("Your SkyBlock Profile","Your Skills","SkyBlock Stats").contains(title))return "stats";
+        if(Set.of("Pets","Pet Menu","Autopet Rules").contains(title))return "pets";
+        if(Set.of("Collection","Collections").contains(title))return "collections";
+        if(Set.of("Accessory Bag","Your Accessory Bag","Accessory Powers").contains(title))return "accessories";
+        if(Set.of("SkyBlock Guide","Quest Log","Community Shop","Profile Upgrades").contains(title))return "quests";
         if(title.matches("Hunting Toolkit(?: \\(\\d+/\\d+\\))?"))return "toolkit";
         if(BANK_TITLES.contains(title))return "bank";
         if(title.equals("SkyBlock Menu")||title.equals("Cookie Buff")||title.matches("(?:\\(\\d+/\\d+\\) )?Active Effects"))return "buffs";
@@ -51,7 +79,7 @@ public final class MenuParser {
         String kind=kind(title);if(kind==null||slots.size()>54)return Map.of();
         Map<String,Object> out=new LinkedHashMap<>();
         if(kind.equals("huntaxe")) {
-            for(ItemView item:slots)if(item.slot()==22&&item.id()!=null&&item.lore().stream().map(MenuParser::clean).anyMatch(l->l.matches("(?:COMMON|UNCOMMON|RARE|EPIC|LEGENDARY|MYTHIC|DIVINE|SPECIAL|VERY SPECIAL) (?:DUNGEON )?(?:SWORD|LONGSWORD|BOW|AXE)"))) { out.put("weapon",item.item());break; }
+            for(ItemView item:slots)if(item.slot()==22&&item.id()!=null&&item.lore().stream().map(MenuParser::clean).anyMatch(l->l.matches("(?:a )?(?:COMMON|UNCOMMON|RARE|EPIC|LEGENDARY|MYTHIC|DIVINE|SPECIAL|VERY SPECIAL) (?:DUNGEON )?(?:SWORD|LONGSWORD|BOW|AXE)(?: a)?"))) { out.put("weapon",item.item());break; }
             // Missing/loading/placeholder slots cannot certify that no weapon is absorbed.
             return out;
         }
@@ -75,6 +103,15 @@ public final class MenuParser {
             return out;
         }
         if(kind.equals("garden")&&clean(title).equals("Crop Diagnostics"))for(ItemView i:slots)if(i.slot()==20)for(String raw:i.lore()){String line=clean(raw);if(line.startsWith("Next Stage: ")){Long n=duration(line.substring(12));if(n!=null)out.put("greenhouseNextStageSecondsAtObservation",n);}}
+        if(Set.of("mining","foraging","hunting","dailies","stats","pets","collections","accessories","quests").contains(kind)) {
+            List<Map<String,Object>> facts=new ArrayList<>();
+            for(ItemView i:slots) {
+                String name=clean(i.name());if(!name.matches("[A-Za-z0-9 '():+./%✪★-]{1,96}"))continue;
+                List<Map<String,Object>> fields=numericFacts(i.lore());
+                if(!fields.isEmpty())facts.add(Map.of("slot",i.slot(),"displayName",name,"fields",fields));
+            }
+            out.put("facts",facts);out.put("observedSlots",slots.size());out.put("completeSystem",false);return out;
+        }
         List<Map<String,Object>> items=new ArrayList<>();for(ItemView item:slots)if(item.id()!=null)items.add(item.item());
         out.put("items",items);out.put("observedSlots",slots.size());out.put("completeStorage",false);
         return out;

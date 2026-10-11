@@ -34,6 +34,13 @@ public final class MenuParserTest {
         assert MenuParser.parse("Jumbo Backpack",List.of()).get("completeStorage").equals(false);
         assert MenuParser.parse("Crop Diagnostics",List.of(new MenuParser.ItemView(20,null,"Growth",List.of("Next Stage: 1h 40m 20s"),Map.of()))).get("greenhouseNextStageSecondsAtObservation").equals(6020L);
         assert !MenuParser.parse("Crop Diagnostics",List.of(new MenuParser.ItemView(19,null,"Growth",List.of("Next Stage: 1h 40m 20s"),Map.of()))).containsKey("greenhouseNextStageSecondsAtObservation");
+        assert MenuParser.storedWeapon(List.of("§7Stored Weapon: §5Fabled Hyper Cleaver §6✪✪✪✪✪")).get("stars").equals(5);
+        assert MenuParser.storedWeapon(List.of("Stored Weapon: None")).isEmpty();
+        assert MenuParser.storedWeapon(List.of("Stored Weapon: Fabled Hyper Cleaver", "Stored Weapon: None")).isEmpty();
+        assert MenuParser.numericFacts(List.of("Level 20/50", "Mithril Powder: 1,343", "Progress: 100/300 XP")).size()==3;
+        assert MenuParser.numericFacts(List.of("Coins: 20", "Someone: 34", "Mining Speed: NaN", "Mining Speed: 12 do things")).isEmpty();
+        assert MenuParser.parse("Heart of the Mountain",List.of(new MenuParser.ItemView(1,null,"Mining Speed",List.of("Level 20/50"),Map.of()))).get("completeSystem").equals(false);
+        assert MenuParser.parse("Huntaxe",List.of(new MenuParser.ItemView(22,"HYPER_CLEAVER","Fabled Hyper Cleaver",List.of("§ka §5EPIC DUNGEON SWORD §ka"),weapon))).get("weapon").equals(weapon);
         System.out.println("MenuParser: duration, profile binding, buffs, menu isolation, Huntaxe slot, bank separation and partial storage checks passed");
     }
 }

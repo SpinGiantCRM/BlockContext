@@ -68,7 +68,7 @@ test('missing, empty and unverified Hunting data cannot become an empty or API-v
       const q=await new ProfileService(up,cache).query('Z3L0R','Strawberry','equipment');
       assert.equal(at(q,'result','data','huntaxeStoredWeapon','status'),'unavailable');
       assert.equal(at(q,'result','data','huntaxeStoredWeapon','weapon'),null);
-      assert.equal(at(q,'result','data','fieldCoverage','huntaxeStoredWeapon','reasonCode'),'no_verified_public_api_field');
+      assert.equal(at(q,'result','data','fieldCoverage','huntaxeStoredWeapon','reasonCode'),'stored_weapon_not_exposed_in_observed_item_lore');
       assert.ok(!JSON.stringify(q).includes('unverified-secret'));assert.ok(!JSON.stringify(q).includes('HYPER_CLEAVER'));
     }finally{cache.close();}
   }

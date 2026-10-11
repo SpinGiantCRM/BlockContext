@@ -13,6 +13,7 @@ import net.minecraft.core.component.DataComponents;
 import net.minecraft.world.inventory.ChestMenu;
 import net.minecraft.world.scores.DisplaySlot;
 import net.minecraft.world.item.ItemStack;
+import java.security.MessageDigest;
 import net.minecraft.world.item.component.CustomData;
 import net.minecraft.world.item.component.ItemLore;
 import net.minecraft.nbt.CompoundTag;
@@ -63,6 +64,11 @@ public final class BlockContextClient implements ClientModInitializer {
         @SuppressWarnings("unchecked") Map<String,Object> observations=(Map<String,Object>)state.get("observations");
         long now=System.currentTimeMillis();
         for(var e:MenuParser.tabBuffs(lines).entrySet())observe(observations,e.getKey(),e.getValue(),"tab_display",now);
+        List<Map<String,Object>> ownItems=new ArrayList<>();
+        for(int slot=0;slot<41;slot++){var view=item(client.player.getInventory().getItem(slot),slot);if(view.id()!=null)ownItems.add(view.item());}
+        observe(observations,"inventory",Map.of("items",ownItems,"observedSlots",41,"completeStorage",false),"player_inventory",now);
+        var tabFacts=MenuParser.numericFacts(lines);
+        if(!tabFacts.isEmpty())observe(observations,"tabStats",Map.of("facts",List.of(Map.of("slot",0,"displayName","SkyBlock tab","fields",tabFacts)),"observedSlots",0,"completeSystem",false),"tab_display",now);
         if(client.gui.screen() instanceof AbstractContainerScreen<?> screen&&screen.getMenu() instanceof ChestMenu menu) {
             String title=MenuParser.clean(screen.getTitle().getString()),kind=MenuParser.kind(title);
             if(kind!=null) {
@@ -80,7 +86,7 @@ public final class BlockContextClient implements ClientModInitializer {
         if(now-lastWrite>=5000){state.put("lastSeenAt",now);snapshot(true);lastWrite=now;}
     }
     private void observe(Map<String,Object> observations,String key,Map<String,Object> value,String from,long now) {
-        observations.put(key,Map.of("observedAt",now,"readFrom",from,"values",value));
+        observations.remove(key);observations.put(key,Map.of("observedAt",now,"readFrom",from,"values",value));
     }
     private MenuParser.ItemView item(ItemStack stack,int slot) {
         CustomData custom=stack.get(DataComponents.CUSTOM_DATA);CompoundTag data=custom==null?new CompoundTag():custom.copyTag();
@@ -88,16 +94,33 @@ public final class BlockContextClient implements ClientModInitializer {
         if(id!=null&&!id.matches("[A-Z0-9_:.-]{1,96}"))id=null;
         Map<String,Object> out=new LinkedHashMap<>();out.put("slot",slot);out.put("id",id);out.put("count",stack.getCount());
         String modifier=extra.getString("modifier").orElse(null);if(modifier!=null&&modifier.matches("[a-z0-9_]{1,64}"))out.put("reforge",modifier);
-        for(String key:List.of("hot_potato_count","rarity_upgrades","upgrade_level","dungeon_item_level","art_of_war_count","farming_for_dummies_count","wood_singularity_count","tuned_transmission"))extra.getInt(key).filter(n->n>=0&&n<=100).ifPresent(n->out.put(key,n));
+        for(String key:List.of("hot_potato_count","rarity_upgrades","upgrade_level","dungeon_item_level","art_of_war_count","art_of_peace_count","etherwarp","mana_disintegrator_count","drill_fuel","drill_fuel_capacity","fuel","pickonimbus_durability","cultivating","farmed_cultivating","compact_blocks","expertise_kills","farming_for_dummies_count","wood_singularity_count","tuned_transmission"))extra.getDouble(key).filter(n->Double.isFinite(n)&&n>=0&&n<=1e15).ifPresent(n->out.put(key,n));
         Map<String,Integer> enchants=new LinkedHashMap<>();var enchant=extra.getCompoundOrEmpty("enchantments");
         for(var e:enchant.entrySet())if(enchants.size()<128&&e.getKey().matches("[a-z0-9_]{1,64}"))enchant.getInt(e.getKey()).filter(n->n>0&&n<=100).ifPresent(n->enchants.put(e.getKey(),n));out.put("enchantments",enchants);
+        for(String key:List.of("attributes","runes")) {
+            var nbt=extra.getCompound(key);if(nbt.isEmpty())continue;
+            Map<String,Integer> values=new LinkedHashMap<>();for(String k:nbt.get().keySet())if(values.size()<64&&k.matches("[A-Za-z0-9_:.-]{1,96}"))nbt.get().getInt(k).filter(n->n>=0&&n<=100).ifPresent(n->values.put(k,n));out.put(key,values);
+        }
+        if(extra.contains("ability_scroll")){List<String> scrolls=new ArrayList<>();var list=extra.getListOrEmpty("ability_scroll");for(int i=0;i<Math.min(16,list.size());i++)list.getString(i).filter(v->v.matches("[A-Z_]{1,96}")).ifPresent(scrolls::add);out.put("abilityScrolls",scrolls);}
+        for(String key:List.of("drill_part_engine","drill_part_fuel_tank","drill_part_upgrade_module","skin"))extra.getString(key).filter(v->v.matches("[A-Za-z0-9_:.-]{1,96}")).ifPresent(v->out.put(key,v));
+        if(extra.contains("gems")){
+            Map<String,Object> gems=new LinkedHashMap<>();var nbt=extra.getCompoundOrEmpty("gems");for(String k:nbt.keySet())if(gems.size()<64&&k.matches("[A-Z0-9_]{1,64}")){
+                var direct=nbt.getString(k).filter(v->v.matches("[A-Z0-9_]{1,32}"));if(direct.isPresent())gems.put(k,direct.get());
+                else {Map<String,String> spec=new LinkedHashMap<>();var sub=nbt.getCompoundOrEmpty(k);for(String key:List.of("quality","type"))sub.getString(key).filter(v->v.matches("[A-Z0-9_]{1,32}")).ifPresent(v->spec.put(key,v));if(!spec.isEmpty())gems.put(k,spec);}
+            }out.put("gems",gems);
+        }
+        String itemUuid=extra.getString("uuid").orElse(null);
+        if(itemUuid!=null&&itemUuid.matches("[a-fA-F0-9-]{32,36}"))try{out.put("instanceId",HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(itemUuid.replace("-","").toLowerCase(Locale.ROOT).getBytes(java.nio.charset.StandardCharsets.UTF_8))));}catch(java.security.NoSuchAlgorithmException ignored){}
+        String displayName=MenuParser.clean(stack.getHoverName().getString());if(displayName.matches("[A-Za-z0-9 '():+./%✪★-]{1,96}"))out.put("displayName",displayName);
         List<String> lore=new ArrayList<>();ItemLore itemLore=stack.get(DataComponents.LORE);if(itemLore!=null)for(var line:itemLore.lines()){if(lore.size()>=64)break;String s=line.getString();if(s.length()<=256)lore.add(s);}
+        var stored=MenuParser.storedWeapon(lore);if(!stored.isEmpty())out.put("storedWeapon",stored);
+        for(String raw:lore){String line=MenuParser.clean(raw);var match=java.util.regex.Pattern.compile("^(?:a )?(COMMON|UNCOMMON|RARE|EPIC|LEGENDARY|MYTHIC|DIVINE|SPECIAL|VERY SPECIAL) (?:DUNGEON )?([A-Z ]{1,32})(?: a)?$").matcher(line);if(match.matches()){out.put("rarity",match.group(1));out.put("itemType",match.group(2).trim());}}
         return new MenuParser.ItemView(slot,id,stack.getHoverName().getString(),lore,out);
     }
     private void inactive(){if(wasActive){wasActive=false;snapshot(false);}lastProfile=null;}
     private void snapshot(boolean active) {
         if(profiles.isEmpty())return;
-        Map<String,Object> root=new LinkedHashMap<>();root.put("schemaVersion",1);root.put("collectorVersion","0.1.1");root.put("exportedAt",System.currentTimeMillis());root.put("activeProfile",active?lastProfile:null);root.put("profiles",new ArrayList<>(profiles.values()));
+        Map<String,Object> root=new LinkedHashMap<>();root.put("schemaVersion",1);root.put("collectorVersion","0.2.0");root.put("exportedAt",System.currentTimeMillis());root.put("activeProfile",active?lastProfile:null);root.put("profiles",new ArrayList<>(profiles.values()));
         byte[] bytes=JSON.toJson(root).getBytes(java.nio.charset.StandardCharsets.UTF_8);if(bytes.length<=512*1024)pending.set(bytes);
     }
     private synchronized void writePending() {

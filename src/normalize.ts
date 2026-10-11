@@ -1,5 +1,5 @@
 import { decodeInventory, type Item } from './inventory.js';
-import { AppError, at, number, numericMap, object, text, type JsonObject, type NormalizedProfile, type Section } from './types.js';
+import { AppError, at, number, numericMap, object, text, type JsonObject, type NormalizedProfile, type Section,SECTIONS } from './types.js';
 import { skillSection } from './skills.js';
 import { accessoryDiagnostics, describeItems, magicalPower } from './accessories.js';
 import { gardenSection } from './garden.js';
@@ -9,6 +9,8 @@ import { loadouts } from './loadouts.js';
 import { petsSection, dungeonsSection } from './progression.js';
 import { greenhouse } from './greenhouse.js';
 import { buffs } from './buffs.js';
+import {gameSystems,gameEvidence} from './game-systems.js';
+import {huntaxeSummary} from './item-details.js';
 
 function section(data: JsonObject, present: boolean, warnings: string[] = []): Section {
   return { status: !present ? 'unavailable' : warnings.length ? 'partial' : 'available', data, warnings: !present ? ['Not available in the API response; this does not mean zero.', ...warnings] : warnings };
@@ -45,11 +47,13 @@ export async function normalizeProfile(raw: JsonObject, uuid: string, catalog: J
   const moneyRaw={purseCoins:at(m,'currencies','coin_purse'),sharedProfileBankCoins:at(raw,'banking','balance'),personalBankCoins:at(m,'profile','bank_account'),motes:at(m,'currencies','motes_purse')};
   const moneySources={purseCoins:'member.currencies.coin_purse',sharedProfileBankCoins:'profile.banking.balance',personalBankCoins:'member.profile.bank_account',motes:'member.currencies.motes_purse'};
   const moneyCoverage=Object.fromEntries(Object.entries(moneyFields).map(([key,value])=>[key,{status:value!==null&&value>=0?'available':'unavailable',reasonCode:moneyRaw[key as keyof typeof moneyRaw]===undefined?'not_exposed':value===null||value<0?'invalid_api_value':null,source:moneySources[key as keyof typeof moneySources]}]));
-  const currencies = section({ ...Object.fromEntries(Object.entries(moneyFields).map(([k,v])=>[k,v!==null&&v>=0?v:null])), fieldCoverage:moneyCoverage }, Object.values(moneyFields).some(v=>v!==null&&v>=0), Object.values(moneyCoverage).some(v=>v.status!=='available')?['Some balances are not exposed or invalid; they remain unknown. Personal and shared profile bank balances are separate. Missing API data alone does not establish whether a privacy setting is disabled.']:[]);
+  const currencies = section({ ...Object.fromEntries(Object.entries(moneyFields).map(([k,v])=>[k,v!==null&&v>=0?v:null])), fieldCoverage:moneyCoverage,reportedCurrencies:gameEvidence(m.currencies),bits:gameEvidence(at(m,'player_data','bits')),fame:gameEvidence(at(m,'player_data','fame')),copper:number(at(m,'garden_player_data','copper')),committedCoins:null,netWorth:null,valuationReasonCode:'storage_and_variant_valuations_incomplete' }, Object.values(moneyFields).some(v=>v!==null&&v>=0), Object.values(moneyCoverage).some(v=>v.status!=='available')?['Some balances are not exposed or invalid; they remain unknown. Personal and shared profile bank balances are separate. Missing API data alone does not establish whether a privacy setting is disabled.']:[]);
   const bosses = object(at(m, 'slayer', 'slayer_bosses'));
   const slayers = section({ bosses: Object.fromEntries(Object.entries(bosses).slice(0, 32).map(([k, v]) => [k.slice(0, 64), { experience: number(at(v, 'xp')), killsByTier: numericMap(Object.fromEntries(Object.entries(object(v)).filter(([key]) => key.startsWith('boss_kills_tier_'))), 64) }])) }, at(m, 'slayer', 'slayer_bosses') !== undefined);
-  const dungeons = dungeonsSection(m);
+  const dungeons = dungeonsSection(m,uuid);
   const pets = petsSection(at(m,'pets_data','pets'));
+  pets.data.autopetEvidence=gameEvidence(at(m,'pets_data','autopet'));
+  pets.data.petSystemEvidence=gameEvidence(Object.fromEntries(Object.entries(object(m.pets_data)).filter(([key])=>key!=='pets')));
   const collections = section({ collected: numericMap(m.collection) }, m.collection !== undefined);
   const generators = at(m, 'player_data', 'crafted_generators') ?? m.crafted_generators;
   const minions = section({ craftedGenerators: Array.isArray(generators) ? generators.slice(0, 2048).map(v => text(v)).filter(Boolean) : null, placedMinions: null }, Array.isArray(generators), ['Crafted generators are unlock history, not the currently placed minion setup.']);
@@ -74,11 +78,12 @@ export async function normalizeProfile(raw: JsonObject, uuid: string, catalog: J
   storageCoverage.wardrobeItems = legacyWardrobe ? (legacyWardrobe.items===null?'unavailable':'available') : modernArmor.status;
   storageCoverage.sackCounts = sacksPresent ? 'available' : 'unavailable';
   storageCoverage.backpackItems = backpack.status;
-  // No verified Hypixel public-API format for the profile-bound absorbed weapon.
+  // Item lore can report a displayed stored-weapon identity, but not its full upgrades.
   // The hunting toolkit being empty does not establish an empty Huntaxe.
-  const huntaxeCoverage = {status:'unavailable',reasonCode:'no_verified_public_api_field',source:'Hypixel profile API'};
+  const huntaxeReport=huntaxeSummary([...(describeItems(carried.items,itemsCatalog)??[]).map(i=>({...i,location:'carried_inventory'})),...(describeItems(enderChest.items,itemsCatalog)??[]).map(i=>({...i,location:'ender_chest'}))]);
+  const huntaxeCoverage = {status:huntaxeReport.status,reasonCode:text(huntaxeReport.reasonCode),source:text(huntaxeReport.source)??'Hypixel profile inventory item lore'};
   const equipmentSection = section({
-    huntaxeStoredWeapon: {...huntaxeCoverage,weapon:null,reason:'The profile-bound absorbed weapon has no verified public API field. Missing Hunting data does not establish an empty Huntaxe.'},
+    huntaxeStoredWeapon: huntaxeReport,
     fieldCoverage: Object.fromEntries([['armor',armor],['equipment',equipment],['carriedItems',carried],['enderChestItems',enderChest],['personalVaultItems',vault],['wardrobeItems',wardrobe],['equipmentWardrobeItems',modernEquipment]].map(([name,value])=>{const v=value as typeof wardrobe;return [name,{status:'status' in v?v.status:v.items===null?'unavailable':'available',reasonCode:v.reasonCode,source:name==='wardrobeItems'?(legacyWardrobe?'inventory.wardrobe_contents':'loadout.armor'):name==='equipmentWardrobeItems'?'loadout.equipment':'inventory'}];}).concat([
       ['backpackItems',{status:backpack.status,reasonCode:backpack.status==='available'?null:at(m,'inventory','backpack_contents')===undefined?'not_exposed':'decode_or_invalid_api_value',source:'inventory.backpack_contents'}],
       ['huntaxeStoredWeapon',huntaxeCoverage],
@@ -93,7 +98,7 @@ export async function normalizeProfile(raw: JsonObject, uuid: string, catalog: J
     backpackItemCount: backpack.status === 'available' ? backpack.items!.length : null, knownBackpackItemCount: backpack.items?.length ?? null,
     storageCoverage, storageWarnings: [...enderChest.warnings.map(w => `Ender Chest: ${w}`), ...vault.warnings.map(w => `Personal vault: ${w}`), ...wardrobe.warnings.map(w => `Wardrobe: ${w}`), ...modernEquipment.warnings, ...backpack.warnings],
     itemCatalogLastUpdated: number(itemsCatalog.lastUpdated), itemCatalogAvailable: Object.keys(object(itemsCatalog.items)).length > 0
-  }, armor.items !== null || equipment.items !== null || carried.items !== null || wardrobe.items !== null || modernEquipment.items !== null || backpack.items !== null, [...armor.warnings.map(w => `Armor: ${w}`), ...equipment.warnings.map(w => `Equipment: ${w}`), ...carried.warnings.map(w => `Carried inventory: ${w}`), 'The absorbed Huntaxe weapon remains unknown; the public API snapshot cannot verify its identity, upgrades or whether the slot is empty.', ...(Object.values(storageCoverage).some(v=>v!=='available')?['Some storage fields are unavailable or partial; inspect fieldCoverage and storageWarnings.']:[])]);
+  }, armor.items !== null || equipment.items !== null || carried.items !== null || wardrobe.items !== null || modernEquipment.items !== null || backpack.items !== null, [...armor.warnings.map(w => `Armor: ${w}`), ...equipment.warnings.map(w => `Equipment: ${w}`), ...carried.warnings.map(w => `Carried inventory: ${w}`), huntaxeReport.status==='unavailable'?'No stored-weapon identity was exposed in the observed Huntaxe item lore; this does not establish an empty slot.':'Stored-weapon tooltip reports provide a name and displayed stars only; full absorbed-weapon enchantments and upgrades remain unknown. Check for conflicting reports.', ...(Object.values(storageCoverage).some(v=>v!=='available')?['Some storage fields are unavailable or partial; inspect fieldCoverage and storageWarnings.']:[])]);
   const storage = object(m.accessory_bag_storage);
   const bagItems = describeItems(accessories.items, itemsCatalog);
   const diagnostics = accessoryDiagnostics(bagItems, describeItems(carried.items, itemsCatalog));
@@ -109,5 +114,7 @@ export async function normalizeProfile(raw: JsonObject, uuid: string, catalog: J
     [...accessories.warnings, 'Highest recorded magical power is historical and may differ from the current snapshot calculation. The calculation applies outside Dungeons and uses pinned community rules.',
     ...(power.reasons as string[]), 'Carried accessory lists include only items identified by the catalog or a structured footer. Stored or carried items do not add bag magical power.']);
   const garden = gardenSection(null); garden.data.greenhouse = greenhouse(m);
-  return { id, name: text(raw.cute_name, 32) ?? 'Unnamed', selected: raw.selected === true, gameMode: text(raw.game_mode, 32), sections: { stats, skills: skillSection(m, catalog, playerMetadata), currencies, slayers, dungeons, pets, collections, minions, equipment: equipmentSection, accessories: accessorySection, garden } };
+  const sections={ stats, skills: skillSection(m, catalog, playerMetadata), currencies, slayers, dungeons, pets, collections, minions, equipment: equipmentSection, accessories: accessorySection, garden,...gameSystems(m,raw) };
+  sections.systems.data.registry=SECTIONS.filter(s=>s!=='systems').map(s=>({id:s,status:sections[s].status,source:'profile_API_or_separately_labeled_client_observations',fullyImplemented:false,coverage:sections[s].data.fieldCoverage??null}));
+  return { id, name: text(raw.cute_name, 32) ?? 'Unnamed', selected: raw.selected === true, gameMode: text(raw.game_mode, 32), sections };
 }

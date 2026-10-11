@@ -1,5 +1,5 @@
 export type JsonObject = Record<string, unknown>;
-export const SECTIONS = ['stats', 'skills', 'currencies', 'slayers', 'dungeons', 'pets', 'collections', 'minions', 'equipment', 'accessories', 'garden'] as const;
+export const SECTIONS = ['stats', 'skills', 'currencies', 'slayers', 'dungeons', 'pets', 'collections', 'minions', 'equipment', 'accessories', 'garden', 'mining', 'foraging', 'hunting', 'dailies', 'quests', 'rift', 'crimson_isle', 'chocolate_factory', 'systems'] as const;
 export type SectionName = typeof SECTIONS[number];
 export interface Section {
   status: 'available' | 'partial' | 'unavailable';

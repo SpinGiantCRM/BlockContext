@@ -19,7 +19,7 @@ export class ProfileService {
     const offset = page.offset ?? 0, limit = page.limit ?? 50;
     if (!Number.isInteger(offset) || offset < 0 || offset > 4096 || !Number.isInteger(limit) || limit < 1 || limit > 100) throw new AppError('INVALID_PAGE', 'Use an offset from 0 to 4096 and a limit from 1 to 100.');
     const namespace = this.upstream.source;
-    const cacheNamespace = `v9:${namespace}`;
+    const cacheNamespace = `v10:${namespace}`;
     const identity = await this.cache.get(`${cacheNamespace}:identity:${player.toLowerCase()}`, 24 * 3600_000, 24 * 3600_000, () => this.upstream.resolve(player));
     const uuid = identity.value.uuid;
     const result = await this.cache.get<ProfileSet>(`${cacheNamespace}:profiles:${uuid}`, 300_000, 1800_000, async () => {
@@ -32,7 +32,11 @@ export class ProfileService {
       let playerMetadata: JsonObject = {};
       try { playerMetadata = (await this.cache.get(`${cacheNamespace}:rank:${uuid}`, 3600_000, 24 * 3600_000, () => this.upstream.playerMetadata(uuid))).value; } catch { /* Rank-gated Runecrafting cap stays unknown. */ }
       const profiles: NormalizedProfile[] = [];
-      for (const profile of raw) profiles.push(await normalizeProfile(profile, uuid, catalog, itemsCatalog, playerMetadata));
+      for (const profile of raw) {
+        const normalized=await normalizeProfile(profile, uuid, catalog, itemsCatalog, playerMetadata);
+        const stamp=(value:unknown):void=>{if(value===null||typeof value!=='object')return;for(const [key,child] of Object.entries(value)){if(key==='observedAt'&&child==='see_response_metadata.retrievedAt')(value as JsonObject)[key]=new Date(retrievedAt).toISOString();else stamp(child);}};
+        stamp(normalized);profiles.push(normalized);
+      }
       return { profiles, retrievedAt };
     }, snapshot => snapshot.retrievedAt);
     const profiles = result.value.profiles;
@@ -73,7 +77,7 @@ export class ProfileService {
     if (requestedSection) {
       const original = requestedSection === 'garden' ? garden : selected!.sections[requestedSection];
       const data = { ...original.data };
-      if (['stats','currencies','equipment','minions','garden'].includes(requestedSection)) data.clientObservations=await this.client.query(uuid,selected!.name,requestedSection as ClientSection);
+      if (requestedSection) data.clientObservations=await this.client.query(uuid,selected!.name,requestedSection as ClientSection);
       const pagination: JsonObject = {};
       for (const [key, value] of Object.entries(data)) {
         if (key === 'storageWarnings') continue;
@@ -83,6 +87,19 @@ export class ProfileService {
         const slice = entries.slice(offset, offset + limit);
         data[key] = map ? Object.fromEntries(slice as [string, unknown][]) : slice;
         pagination[key] = { offset, limit, total: entries.length, returned: slice.length, hasMore: offset + slice.length < entries.length };
+      }
+      for(const treeKey of ['heartOfTheMountain','heartOfTheForest']) {
+        const tree=data[treeKey];if(tree===null||typeof tree!=='object')continue;
+        const nodes=(tree as JsonObject).nodes;if(!Array.isArray(nodes))continue;
+        const slice=nodes.slice(offset,offset+limit);data[treeKey]={...(tree as JsonObject),nodes:slice};pagination[treeKey+'.nodes']={offset,limit,total:nodes.length,returned:slice.length,hasMore:offset+slice.length<nodes.length};
+      }
+      if(requestedSection==='dungeons') {
+        const types={...(data.types as JsonObject)};
+        for(const [kind,value] of Object.entries(types)) {
+          const v=value as JsonObject, runs=v.bestRuns;if(!Array.isArray(runs))continue;
+          const slice=runs.slice(offset,offset+limit);types[kind]={...v,bestRuns:slice};pagination['types.'+kind+'.bestRuns']={offset,limit,total:runs.length,returned:slice.length,hasMore:offset+slice.length<runs.length};
+        }
+        data.types=types;
       }
       if (requestedSection==='garden') {
         const g = data.greenhouse as {data:JsonObject};
@@ -98,7 +115,11 @@ export class ProfileService {
     }
     const summary: JsonObject = {};
     summary.clientObservations=await this.client.query(uuid,selected!.name);
-    for (const name of ['stats', 'skills', 'currencies', 'slayers', 'dungeons'] as const) summary[name] = selected!.sections[name];
+    for (const name of ['stats', 'skills', 'currencies', 'slayers', 'dungeons'] as const) summary[name] = name==='dungeons'?{...selected!.sections.dungeons,data:{...selected!.sections.dungeons.data,recentRuns:undefined,treasureChests:undefined,types:Object.fromEntries(Object.entries(selected!.sections.dungeons.data.types as JsonObject).map(([k,v])=>[k,{...(v as JsonObject),bestRuns:undefined}]))}}:selected!.sections[name];
+    summary.mining={status:selected!.sections.mining.status,heartOfTheMountain:{...(selected!.sections.mining.data.heartOfTheMountain as JsonObject),nodes:undefined,nodesInOverview:false},powders:selected!.sections.mining.data.powders,forgeJobs:selected!.sections.mining.data.forgeJobs,goldCollection:selected!.sections.mining.data.goldCollection};
+    summary.foraging={status:selected!.sections.foraging.status,heartOfTheForest:{...(selected!.sections.foraging.data.heartOfTheForest as JsonObject),nodes:undefined,nodesInOverview:false},whispers:selected!.sections.foraging.data.whispers};
+    summary.dailyStatus={...selected!.sections.dailies,data:{activities:(selected!.sections.dailies.data.activities as JsonObject[]).map(({activityId,name,status,completedToday,remainingCharges,nextReset})=>({activityId,name,status,completedToday,remainingCharges,nextReset}))}};
+    summary.systems=selected!.sections.systems.data.registry;
     const stats=selected!.sections.stats, activeEffects=stats.data.activePotionEffects as JsonObject[]|null, pausedEffects=stats.data.pausedPotionEffects as JsonObject[]|null;
     summary.stats={...stats,data:{...stats.data,activePotionEffects:activeEffects?.slice(0,10)??null,pausedPotionEffects:pausedEffects?.slice(0,10)??null,potionEffectsInOverview:{limit:10,activeTruncated:(activeEffects?.length??0)>10,pausedTruncated:(pausedEffects?.length??0)>10}}};
     const activePets = (selected!.sections.pets.data.pets as JsonObject[] | null)?.filter(p => p.active) ?? null;

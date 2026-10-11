@@ -1,0 +1,30 @@
+{
+  "source": "https://github.com/NotEnoughUpdates/NotEnoughUpdates-REPO/blob/79c0356d2117e40f1d75c06861126ebaa38c5af6/constants/leveling.json",
+  "commit": "79c0356d2117e40f1d75c06861126ebaa38c5af6",
+  "reviewedAt": "2026-10-11",
+  "license": "MIT",
+  "cumulativeExperience": {
+    "mining": [
+      0,
+      3000,
+      9000,
+      25000,
+      60000,
+      100000,
+      150000,
+      210000,
+      290000,
+      400000
+    ],
+    "foraging": [
+      0,
+      3000,
+      9000,
+      25000,
+      60000,
+      100000,
+      150000,
+      200000
+    ]
+  }
+}

@@ -21,7 +21,54 @@ def item(value):
     out['enchantments'] = {text(k, r'[a-z0-9_]{1,64}'): integer(v, 1, 100) for k, v in enchants.items()}
     for k in UPGRADES:
         if k in value: out[k] = integer(value[k], 0, 100)
+    for k in ('art_of_peace_count','etherwarp','mana_disintegrator_count','drill_fuel','drill_fuel_capacity','fuel','pickonimbus_durability','cultivating','farmed_cultivating','compact_blocks','expertise_kills'):
+        if k in value:
+            n=value[k]
+            if isinstance(n,bool) or not isinstance(n,(int,float)) or not math.isfinite(n) or not 0<=n<=1e15:raise ValueError('invalid upgrade')
+            out[k]=n
+    if 'abilityScrolls' in value:
+        if not isinstance(value['abilityScrolls'],list) or len(value['abilityScrolls'])>16:raise ValueError('invalid scrolls')
+        out['abilityScrolls']=[text(v,r'[A-Z_]{1,96}') for v in value['abilityScrolls']]
+    for k in ('attributes','runes'):
+        if k in value:
+            if not isinstance(value[k],dict) or len(value[k])>64:raise ValueError('invalid attributes')
+            out[k]={text(key,r'[a-zA-Z0-9_:.-]{1,96}'):integer(v,0,100) for key,v in value[k].items()}
+    for k in ('drill_part_engine','drill_part_fuel_tank','drill_part_upgrade_module','skin'):
+        if k in value:out[k]=text(value[k],r'[a-zA-Z0-9_:.-]{1,96}')
+    if 'gems' in value:
+        if not isinstance(value['gems'],dict) or len(value['gems'])>64:raise ValueError('invalid gems')
+        gems={}
+        for k,v in value['gems'].items():
+            text(k,r'[A-Z0-9_]{1,64}')
+            if isinstance(v,str):gems[k]=text(v,r'[A-Z0-9_]{1,32}')
+            elif isinstance(v,dict):gems[k]={key:text(v[key],r'[A-Z0-9_]{1,32}') for key in ('quality','type') if key in v}
+            else:raise ValueError('invalid gem')
+        out['gems']=gems
+    if 'instanceId'  in value:out['instanceId']=text(value['instanceId'],r'[a-f0-9]{64}')
+    if 'displayName' in value:out['displayName']=text(value['displayName'],r"[A-Za-z0-9 '():+./%✪★-]{1,96}")
+    if 'rarity' in value:out['rarity']=text(value['rarity'],r'COMMON|UNCOMMON|RARE|EPIC|LEGENDARY|MYTHIC|DIVINE|SPECIAL|VERY SPECIAL')
+    if 'itemType' in value:out['itemType']=text(value['itemType'],r'[A-Z ]{1,32}')
+    if 'storedWeapon' in value:
+        v=value['storedWeapon']
+        if v['status']!='partial' or v['completeWeaponDetails'] is not False:raise ValueError('invalid stored summary')
+        out['storedWeapon']=dict(status='partial',displayName=text(v['displayName'],r"[A-Za-z][A-Za-z '-]{0,95}"),stars=None if v['stars'] is None else integer(v['stars'],1,15),completeWeaponDetails=False)
     return out
+
+LABELS=set('Level|Tier|Experience|HotM Experience|HotF Experience|Mithril Powder|Gemstone Powder|Glacite Powder|Tokens of the Mountain|Tokens of the Forest|Mining Speed|Mining Fortune|Foraging Fortune|Hunting Fortune|Charm Chance|Pristine|Breaking Power|Magical Power|Bonus Commissions Remaining|Daily Bonus Commissions|Charges|Remaining Charges|Copper|Bits|Motes|Whispers|Chocolate|Progress|Cost|Next Level Cost|Powder Cost|Fuel|Organic Matter|Item Tier|Collection|Health|Defense|Strength|Crit Damage|Crit Chance|Intelligence|Speed|Sea Creature Chance|Fishing Speed'.split('|'))
+def facts(value):
+    if value['completeSystem'] is not False or not isinstance(value['facts'],list) or len(value['facts'])>54:raise ValueError('invalid facts')
+    out=[]
+    for row in value['facts']:
+        if not isinstance(row['fields'],list) or len(row['fields'])>64:raise ValueError('invalid fields')
+        fields=[]
+        for f in row['fields']:
+            v=f['value'];mx=f['maximum'];unit=f['unit']
+            if f['label'] not in LABELS or unit not in (None,'XP','coins','Powder','Whispers','Bits','Motes','%'):raise ValueError('invalid field label')
+            if isinstance(v,bool) or not isinstance(v,(int,float)) or not math.isfinite(v) or abs(v)>1e15:raise ValueError('invalid field value')
+            if mx is not None and (isinstance(mx,bool) or not isinstance(mx,(int,float)) or not math.isfinite(mx) or not 0<=mx<=1e15):raise ValueError('invalid maximum')
+            fields.append(dict(label=f['label'],value=v,maximum=mx,unit=unit))
+        out.append(dict(slot=integer(row['slot'],0,53),displayName=text(row['displayName'],r"[A-Za-z0-9 '():+./%✪★-]{1,96}"),fields=fields))
+    return dict(facts=out,observedSlots=integer(value['observedSlots'],0,54),completeSystem=False)
 
 def values(key, value):
     if key in ('cookie', 'godPotion'):
@@ -34,18 +81,19 @@ def values(key, value):
         return {field: n}
     if key == 'huntaxe': return {'weapon': item(value['weapon'])}
     storage = r'storage:(?:(?:Small |Medium |Large |Greater |Jumbo )?Backpack(?: \(Slot #\d{1,2}\))?|Ender Chest(?: \(\d+/\d+\))?|Storage \(\d+/\d+\))'
-    if key in ('toolkit', 'minion', 'garden') or re.fullmatch(storage, key):
+    if key in ('inventory','toolkit', 'minion', 'garden') or re.fullmatch(storage, key):
         if value['completeStorage'] is not False or not isinstance(value['items'], list) or len(value['items']) > 54: raise ValueError('invalid menu')
         out=dict(items=[item(i) for i in value['items']], observedSlots=integer(value['observedSlots'], 0, 54), completeStorage=False)
         if key=='garden' and 'greenhouseNextStageSecondsAtObservation' in value: out['greenhouseNextStageSecondsAtObservation']=integer(value['greenhouseNextStageSecondsAtObservation'],0,10*365*86400)
         return out
+    if key in ('tabStats','mining','foraging','hunting','dailies','stats','pets','collections','accessories','quests'):return facts(value)
     return None
 
 def project(blob, owner, now=None):
     if len(blob) > LIMIT: raise ValueError('oversized snapshot')
     owner = text(owner, r'[a-f0-9]{32}')
     root = json.loads(blob)
-    if root['schemaVersion'] != 1 or root['collectorVersion'] not in ('0.1.0', '0.1.1'): raise ValueError('unsupported schema')
+    if root['schemaVersion'] != 1 or root['collectorVersion'] not in ('0.1.0', '0.1.1', '0.2.0'): raise ValueError('unsupported schema')
     now = int(time.time()*1000) if now is None else now
     exported = integer(root['exportedAt'], now-86400_000, now+5000)
     profiles = root['profiles']
@@ -66,7 +114,7 @@ def project(blob, owner, now=None):
             if v is None: continue
             observed=integer(record['observedAt'], 0, now+5000)
             if observed < now-86400_000: continue
-            if record['readFrom'] not in ('opened_menu','tab_display'): raise ValueError('invalid source')
+            if record['readFrom'] not in ('opened_menu','tab_display','player_inventory'): raise ValueError('invalid source')
             obs[k]=dict(observedAt=observed, readFrom=record['readFrom'], values=v)
         result.append(dict(uuid=owner, playerName=name, profileName=profile, observations=obs))
     active=root.get('activeProfile')

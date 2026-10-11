@@ -21,7 +21,8 @@ def main():
     # Verify identity permissions without reading or logging its contents.
     info=identity.stat()
     if not stat.S_ISREG(info.st_mode) or (os.name!='nt' and info.st_mode & 0o077): raise ValueError('private SSH identity required')
-    command=['ssh','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=10','-o','ServerAliveInterval=5','-o','ServerAliveCountMax=2','-i',str(identity),host,'sudo /usr/local/bin/blockcontext-import-client-snapshot']
+    # Explicit identity/destination and default known-hosts file; ignore unrelated proxy configuration.
+    command=['ssh','-F',os.devnull,'-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=10','-o','ServerAliveInterval=5','-o','ServerAliveCountMax=2','-i',str(identity),host,'sudo /usr/local/bin/blockcontext-import-client-snapshot']
     previous=None;last_status=None
     while True:
         try:

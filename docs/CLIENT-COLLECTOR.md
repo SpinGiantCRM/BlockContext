@@ -8,7 +8,7 @@ This investigation distinguishes data omitted in an observed profile from data t
 
 | Data | Public API finding | Collector coverage |
 | --- | --- | --- |
-| Absorbed Huntaxe weapon | No verified public field; third-party integrations read the Huntaxe menu | Weapon displayed in slot 22, identified as a weapon by its structured item footer; ID, reforge, enchantments and selected upgrade counters |
+| Absorbed Huntaxe weapon | Tool lore can expose a partial display name/stars; full stored-weapon fields are unverified | Weapon displayed in slot 22, identified as a weapon by its structured item footer; ID, reforge, enchantments and selected upgrade counters |
 | Bank balances omitted on a profile | Personal and shared bank fields exist, but can be absent even with sharing enabled | Displayed balances; only explicit personal/co-op labels classify the account. Otherwise the balance stays unclassified |
 | Booster Cookie timer | API active flag is supported; no verified remaining-time field | Remaining duration/status displayed in the SkyBlock menu or tab footer |
 | God Potion status/timer | Individual effect lists do not establish a God Potion | Explicit God Potion tab/menu display; Active Effects slot 10 only when the God Potion filter is selected |
@@ -19,6 +19,8 @@ This investigation distinguishes data omitted in an observed profile from data t
 
 Menu formats change. Unrecognized, ambiguous, loading or absent fields remain unknown. Distinct backpacks with the same displayed title cannot be reliably distinguished: the latest observation replaces that title's prior observation. Collector observations reset when the game restarts; saved files can remain readable until their 24-hour expiry. No guarantee of complete item upgrades is made.
 
+Collector 0.2.0 also captures current owner inventory slots 0–40 and selected typed numeric facts from supported manually opened progression menus. It extracts stored-weapon name/stars from tool lore without exporting the lore itself. It adds hashed item instance IDs, selected scroll/gem/attribute/fuel fields and explicit partial coverage. See [factual data coverage](FACTUAL-DATA-COVERAGE.md) for source limits and unsupported fields.
+
 ## Rules assessment
 
 Reviewed 11 October 2026 against [Hypixel Allowed Modifications](https://support.hypixel.net/hc/en-us/articles/6472550754962-Hypixel-Allowed-Modifications), [SkyBlock Rules](https://support.hypixel.net/hc/en-us/articles/4508088842898-Hypixel-SkyBlock-Rules) and the [API Policy](https://developer.hypixel.net/policies/) updated 30 September 2026. The design is restricted to recording the owner's already visible status and menu data, consistent with the purposes of permitted status displays and gameplay recorders. This is our rules assessment, not an official ruling. Hypixel says all modifications are used at the player's own risk and offers no guarantees; modifications outside its permitted categories are disallowed by default.
@@ -27,11 +29,11 @@ The collector has no automation, combat assistance, hidden-player information, d
 
 ## Startup correction
 
-Collector 0.1.0 fails during Fabric startup because its mixin package includes the ordinary client entrypoint. Replace it with 0.1.1, which keeps accessors in a dedicated `dev.blockcontext.client.mixin` package. Keep only one collector JAR in `mods`. Backend 0.7.1 accepts both snapshot versions.
+Collector 0.1.0 fails during Fabric startup because its mixin package includes the ordinary client entrypoint. Replace it with 0.1.1, which keeps accessors in a dedicated `dev.blockcontext.client.mixin` package. Keep only one collector JAR in `mods`. Backend 0.8.0 accepts 0.1.0, 0.1.1 and 0.2.0 snapshots.
 
 ## Build and install
 
-Collector 0.1.1 targets Minecraft **26.2**, Java **25**, Fabric Loader **0.19.5** and Fabric API **0.161.0+26.2**. Other game versions are not validated. The MCP server remains usable with standard stdio and Streamable HTTP clients on their supported systems.
+Collector 0.2.0 targets Minecraft **26.2**, Java **25**, Fabric Loader **0.19.5** and Fabric API **0.161.0+26.2**. Other game versions are not validated. The MCP server remains usable with standard stdio and Streamable HTTP clients on their supported systems.
 
 With an existing Prism Launcher instance containing those dependencies:
 
@@ -39,7 +41,7 @@ With an existing Prism Launcher instance containing those dependencies:
 python client-mod/build.py --prism-root /absolute/path/to/PrismLauncher --instance your-instance-name
 ```
 
-The build compiles against your local Minecraft libraries, runs the parser checks, and packages only BlockContext classes/resources and the MIT license. It does not redistribute Minecraft, Fabric or other mods. Put `client-mod/build/BlockContext-Collector-0.1.1-mc26.2.jar` in that instance's `minecraft/mods` directory, then restart Minecraft. Removing this JAR and restarting disables collection. Existing mods are unaffected.
+The build compiles against your local Minecraft libraries, runs the parser checks, and packages only BlockContext classes/resources and the MIT license. It does not redistribute Minecraft, Fabric or other mods. Put `client-mod/build/BlockContext-Collector-0.2.0-mc26.2.jar` in that instance's `minecraft/mods` directory, then restart Minecraft. Removing this JAR and restarting disables collection. Existing mods are unaffected.
 
 Join SkyBlock and open the menus manually. Leave each open for at least five seconds. The local output is `minecraft/blockcontext/latest.json`; on POSIX systems the directory is mode 700 and file 600. On Windows, restrict its folder/file ACLs to your account. Only an unambiguous SkyBlock profile on a `hypixel.net` server is collected. Do not send the file to a public chat or issue.
 
@@ -49,7 +51,7 @@ For an MCP instance on the same machine, set the absolute `BLOCKCONTEXT_CLIENT_S
 
 Each observation has its own timestamp, source, age and coverage. Beyond five minutes it is marked stale; beyond 24 hours it is omitted. A recent export does not refresh an older menu observation. Timers preserve what the game displayed; the server does not decrement them or invent an expiry because effects can pause. No inference of inactive buffs or empty storage is made from missing data.
 
-For your own remote server, the optional Python bridge validates and projects the file before sending it over SSH with strict host-key validation. Its private mode-600 configuration contains `source`, `ownerUuid`, `sshHost` and `sshIdentity`. Keep it outside the repository. The bridge rejects other players, oversized files, unsafe permissions, malformed data and unsupported fields. It runs independently of the mod and sends only changed latest snapshots. A local stdio setup needs no bridge.
+For your own remote server, the optional Python bridge validates and projects the file before sending it over SSH with strict host-key validation. It uses the explicitly configured destination and identity, and ignores unrelated system/user SSH proxy configuration. Use a real hostname or IP address rather than an alias that requires SSH configuration. Its private mode-600 configuration contains `source`, `ownerUuid`, `sshHost` and `sshIdentity`. Keep it outside the repository. The bridge rejects other players, oversized files, unsafe permissions, malformed data and unsupported fields. It runs independently of the mod and sends only changed latest snapshots. A local stdio setup needs no bridge.
 
 The supplied import helper is an example for a Linux server with a `blockcontext` service account. Install the helper and `client_snapshot.py` in a root-owned directory, configure `/etc/blockcontext/client-owner` privately, and expose the fixed command `/usr/local/bin/blockcontext-import-client-snapshot` only to your trusted SSH operator. The destination is `/var/lib/blockcontext/client/latest.json`; it contains one latest snapshot, with no backups or observation history. Do not expose the importer to the Internet. Adapt paths and accounts deliberately for your own server.
 

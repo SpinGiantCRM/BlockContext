@@ -11,10 +11,10 @@ def fixture():
 
 class Projection(unittest.TestCase):
     def test_collector_versions(self):
-        for version in ('0.1.0', '0.1.1'):
+        for version in ('0.1.0', '0.1.1','0.2.0'):
             r=fixture();r['collectorVersion']=version
             self.assertEqual(json.loads(project(json.dumps(r).encode(),OWNER,NOW))['collectorVersion'],version)
-        r=fixture();r['collectorVersion']='0.2.0'
+        r=fixture();r['collectorVersion']='9.9.9'
         with self.assertRaises(ValueError):project(json.dumps(r).encode(),OWNER,NOW)
     def test_projection_and_zero(self):
         blob=project(json.dumps(fixture()).encode(),OWNER,NOW)
@@ -27,6 +27,15 @@ class Projection(unittest.TestCase):
             r=fixture();change(r)
             with self.assertRaises((ValueError,TypeError)):project(json.dumps(r).encode(),OWNER,NOW)
         with self.assertRaises(ValueError):project(b' '* (LIMIT+1),OWNER,NOW)
+    def test_new_inventory_and_menu_projection(self):
+        r=fixture();r['collectorVersion']='0.2.0';obs=r['profiles'][0]['observations'];weapon=obs['huntaxe']['values']['weapon']
+        weapon.update(instanceId='f'*64,attributes={'warrior':2},abilityScrolls=['IMPLOSION_SCROLL'],gems={'RUBY_0':{'quality':'PERFECT','type':'RUBY','secret':'private'}},storedWeapon=dict(status='partial',displayName='Fabled Hyper Cleaver',stars=5,completeWeaponDetails=False))
+        obs['inventory']=dict(observedAt=NOW,readFrom='player_inventory',values=dict(items=[weapon],observedSlots=41,completeStorage=False))
+        obs['mining']=dict(observedAt=NOW,readFrom='opened_menu',values=dict(facts=[dict(slot=1,displayName='Mining Speed',fields=[dict(label='Level',value=20,maximum=50,unit=None,secret='private')])],observedSlots=54,completeSystem=False))
+        result=project(json.dumps(r).encode(),OWNER,NOW);self.assertNotIn(b'private',result)
+        out=json.loads(result)['profiles'][0]['observations'];self.assertEqual(out['inventory']['values']['items'][0]['attributes'],{'warrior':2});self.assertEqual(out['mining']['values']['facts'][0]['fields'][0]['maximum'],50)
+        obs['mining']['values']['completeSystem']=True
+        with self.assertRaises(ValueError):project(json.dumps(r).encode(),OWNER,NOW)
     def test_old_fields_expire_without_history(self):
         r=fixture();r['profiles'][0]['observations']['huntaxe']['observedAt']=NOW-86400_001
         self.assertNotIn('huntaxe',json.loads(project(json.dumps(r).encode(),OWNER,NOW))['profiles'][0]['observations'])

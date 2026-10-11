@@ -25,7 +25,7 @@ subprocess.run(['javac','--release','25','-proc:none','-classpath',os.pathsep.jo
 test=root/'src/test/java/dev/blockcontext/client/MenuParserTest.java'
 subprocess.run(['javac','--release','25','-classpath',str(classes),'-d',str(classes),str(test)],check=True)
 subprocess.run(['java','-ea','-classpath',str(classes),'dev.blockcontext.client.MenuParserTest'],check=True)
-output=build/'BlockContext-Collector-0.1.1-mc26.2.jar'
+output=build/'BlockContext-Collector-0.2.0-mc26.2.jar'
 with zipfile.ZipFile(output,'w',zipfile.ZIP_DEFLATED) as z:
  for base in [classes,root/'src/main/resources']:
   for f in sorted(base.rglob('*')):

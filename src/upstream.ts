@@ -112,15 +112,15 @@ export class HypixelUpstream implements Upstream {
     // Discard co-op member data, banking transactions, and fields outside our contract.
     return data.profiles.map(value => {
       const p = object(value); const member = object(at(p, 'members', uuid));
-      const fields = ['leveling', 'fairy_soul', 'player_data', 'currencies', 'slayer', 'dungeons', 'pets_data', 'collection', 'crafted_generators', 'inventory', 'accessory_bag_storage', 'jacobs_contest', 'garden_player_data', 'foraging'];
+      const fields = ['leveling', 'fairy_soul', 'player_data', 'currencies', 'slayer', 'dungeons', 'pets_data', 'collection', 'crafted_generators', 'inventory', 'accessory_bag_storage', 'jacobs_contest', 'garden_player_data', 'foraging','mining_core','foraging_core','skill_tree','forge','experimentation','shards','attributes','bestiary','quests','objectives','events','player_stats'];
       const limited = Object.fromEntries(fields.filter(k => member[k] !== undefined).map(k => [k, member[k]]));
       if (member.loadout !== undefined) limited.loadout = member.loadout!==null&&typeof member.loadout==='object'&&!Array.isArray(member.loadout)?{ armor: at(member,'loadout','armor'), equipment: at(member,'loadout','equipment') }:null;
       const profileFields = ['bank_account','cookie_buff_active'];
       const ownProfile = Object.fromEntries(profileFields.filter(k=>at(member,'profile',k)!==undefined).map(k=>[k,at(member,'profile',k)]));
       if (Object.keys(ownProfile).length) limited.profile = ownProfile;
-      if (member.rift !== undefined) limited.rift = { access: { consumed_prism: at(member, 'rift', 'access', 'consumed_prism') ?? false } };
-      if (member.nether_island_player_data !== undefined) limited.nether_island_player_data = { abiphone: { active_contacts: at(member, 'nether_island_player_data', 'abiphone', 'active_contacts') } };
-      return { profile_id: p.profile_id, cute_name: p.cute_name, selected: p.selected, game_mode: p.game_mode, members: { [uuid]: limited }, banking: p.banking===undefined ? undefined : { balance: at(p, 'banking', 'balance') } };
+      if (member.rift !== undefined) limited.rift = member.rift;
+      if (member.nether_island_player_data !== undefined) limited.nether_island_player_data = member.nether_island_player_data;
+      return { profile_id: p.profile_id, cute_name: p.cute_name, selected: p.selected, game_mode: p.game_mode, community_upgrades:p.community_upgrades, members: { [uuid]: limited }, banking: p.banking===undefined ? undefined : { balance: at(p, 'banking', 'balance') } };
     });
   }
   async skillCatalog(): Promise<JsonObject> { return this.get('https://api.hypixel.net/v2/resources/skyblock/skills', false); }

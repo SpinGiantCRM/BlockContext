@@ -1,5 +1,6 @@
 import { Worker } from 'node:worker_threads';
 import { AppError, at, number, numericMap, object, text, type JsonObject } from './types.js';
+import {itemDetails} from './item-details.js';
 
 export interface Item { slot: number; id: string | null; name: string | null; count: number | null; reforge: string | null; enchantments: Record<string, number>; rarityUpgrade: number | null; dungeonUpgradeLevel: number | null; rarity: string | null; loreCategory: string | null }
 export function projectItems(value: unknown): Item[] {
@@ -12,7 +13,7 @@ export function projectItems(value: unknown): Item[] {
     const lore = at(entry, 'tag', 'display', 'Lore');
     const footer = Array.isArray(lore) ? text(lore.at(-1), 96) : null;
     const parsed = footer?.match(/^(?:a )?(COMMON|UNCOMMON|RARE|EPIC|LEGENDARY|MYTHIC|DIVINE|SPECIAL|VERY SPECIAL) (?:DUNGEON )?([A-Z ]{1,32})(?: a)?$/);
-    return [{ slot, id: text(extra.id), name: text(at(entry, 'tag', 'display', 'Name')), count: number(entry.Count), reforge: text(extra.modifier), enchantments: numericMap(extra.enchantments, 128), rarityUpgrade: number(extra.rarity_upgrades), dungeonUpgradeLevel: number(extra.upgrade_level) ?? number(extra.dungeon_item_level), rarity: parsed?.[1] ?? null, loreCategory: parsed?.[2]?.trim() ?? null }];
+    return [{ slot, id: text(extra.id), name: text(at(entry, 'tag', 'display', 'Name')), count: number(entry.Count), reforge: text(extra.modifier), enchantments: numericMap(extra.enchantments, 128), rarityUpgrade: number(extra.rarity_upgrades), dungeonUpgradeLevel: number(extra.upgrade_level) ?? number(extra.dungeon_item_level), rarity: parsed?.[1] ?? null, loreCategory: parsed?.[2]?.trim() ?? null,...itemDetails(extra,lore) }];
   });
 }
 export async function decodeInventory(value: unknown): Promise<Item[] | null> {
