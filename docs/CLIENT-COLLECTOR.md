@@ -29,11 +29,11 @@ The collector has no automation, combat assistance, hidden-player information, d
 
 ## Startup correction
 
-Collector 0.1.0 fails during Fabric startup because its mixin package includes the ordinary client entrypoint. Replace it with 0.1.1, which keeps accessors in a dedicated `dev.blockcontext.client.mixin` package. Keep only one collector JAR in `mods`. Backend 0.9.0 accepts 0.1.0, 0.1.1, 0.2.0, 0.2.1 0.2.2 and 0.3.0 snapshots.
+Collector 0.1.0 fails during Fabric startup because its mixin package includes the ordinary client entrypoint. Replace it with 0.1.1, which keeps accessors in a dedicated `dev.blockcontext.client.mixin` package. Keep only one collector JAR in `mods`. Backend 0.9.1 accepts 0.1.0, 0.1.1, 0.2.0, 0.2.1 0.2.2 and 0.3.1 snapshots.
 
 ## Build and install
 
-Collector 0.3.0 targets Minecraft **26.2**, Java **25**, Fabric Loader **0.19.5** and Fabric API **0.161.0+26.2**. Other game versions are not validated. The MCP server remains usable with standard stdio and Streamable HTTP clients on their supported systems.
+Collector 0.3.1 targets Minecraft **26.2**, Java **25**, Fabric Loader **0.19.5** and Fabric API **0.161.0+26.2**. Other game versions are not validated. The MCP server remains usable with standard stdio and Streamable HTTP clients on their supported systems.
 
 With an existing Prism Launcher instance containing those dependencies:
 
@@ -41,7 +41,7 @@ With an existing Prism Launcher instance containing those dependencies:
 python client-mod/build.py --prism-root /absolute/path/to/PrismLauncher --instance your-instance-name
 ```
 
-The build compiles against your local Minecraft libraries, runs the parser checks, and packages only BlockContext classes/resources and the MIT license. It does not redistribute Minecraft, Fabric or other mods. Put `client-mod/build/BlockContext-Collector-0.3.0-mc26.2.jar` in that instance's `minecraft/mods` directory, then restart Minecraft. Removing this JAR and restarting disables collection. Existing mods are unaffected.
+The build compiles against your local Minecraft libraries, runs the parser checks, and packages only BlockContext classes/resources and the MIT license. It does not redistribute Minecraft, Fabric or other mods. Put `client-mod/build/BlockContext-Collector-0.3.1-mc26.2.jar` in that instance's `minecraft/mods` directory, then restart Minecraft. Removing this JAR and restarting disables collection. Existing mods are unaffected.
 
 Join SkyBlock and open the menus manually. Leave each open for at least two seconds. The local output is `minecraft/blockcontext/latest.json`; on POSIX systems the directory is mode 700 and file 600. On Windows, restrict its folder/file ACLs to your account. Only an unambiguous SkyBlock profile on a `hypixel.net` server is collected. Do not send the file to a public chat or issue.
 
@@ -65,7 +65,7 @@ Collector 0.2.1 recognizes the observed `Prime Huntaxe - Nex Titanum` menu title
 
 Collector 0.2.2 recognises all five Huntaxe titles listed by [Hypixel’s official item resource](https://api.hypixel.net/v2/resources/skyblock/items), checked 11 October 2026: Worn Huntaxe - Genesis, Sharpened Huntaxe - Dominus, Reinforced Huntaxe - Cursus, Savage Huntaxe - Praedator and Prime Huntaxe - Nex Titanum. Legacy `Huntaxe` titles remain supported. Slot and footer checks are shared across tiers; unrecognised future titles remain unsupported until verified. The observation belongs to the active profile, not an inferred separate weapon per Huntaxe.
 
-## Live collector reads (0.3.0)
+## Live collector reads (0.3.1)
 
 `skyblock_live_context` reads only currently observed owner data. It has no identity lookup, API fallback or gameplay request. The default maximum observation/export age is ten seconds (configurable 2–300). Poll no faster than once per second. Collector exports every second; the supplied private SSH bridge checks every two seconds using a private reusable SSH control connection. Export time does not refresh old observations: current keys must also appear in `observedNow`. Closed menus are excluded from live responses, while `skyblock_client_context` can return dated prior observations.
 

@@ -86,7 +86,7 @@ def attribute_fields(value):
         fields.append(dict(path=f['path'],value=v,semanticStatus='reported_attribute'))
     return dict(fields=fields,omitted=integer(value['omitted'],0,100000),truncated=value['truncated'],complete=False)
 
-LABELS=set(['Level', 'Tier', 'Experience', 'HotM Experience', 'HotF Experience', 'Mithril Powder', 'Gemstone Powder', 'Glacite Powder', 'Tokens of the Mountain', 'Tokens of the Forest', 'Mining Speed', 'Mining Fortune', 'Foraging Fortune', 'Hunting Fortune', 'Charm Chance', 'Pristine', 'Breaking Power', 'Magical Power', 'Bonus Commissions Remaining', 'Daily Bonus Commissions', 'Charges', 'Remaining Charges', 'Copper', 'Bits', 'Motes', 'Whispers', 'Chocolate', 'Progress', 'Cost', 'Next Level Cost', 'Powder Cost', 'Fuel', 'Organic Matter', 'Item Tier', 'Collection', 'Health', 'Defense', 'Strength', 'Crit Damage', 'Crit Chance', 'Intelligence', 'Speed', 'Sea Creature Chance', 'Fishing Speed', 'Purse', 'Piggy', 'Bank', 'Mana', 'Farming Fortune', 'Mining Wisdom', 'Foraging Wisdom', 'Combat Wisdom', 'Fishing Wisdom', 'Enchanting Wisdom', 'Alchemy Wisdom', 'Taming Wisdom', 'Hunting Wisdom', 'Ability Damage', 'Bonus Attack Speed', 'True Defense', 'Vitality', 'Mending', 'Sweep', 'Pressure Resistance', 'Fossil Dust', 'Soulflow', 'Farming', 'Mining', 'Foraging', 'Combat', 'Fishing', 'Hunting', 'Enchanting', 'Alchemy', 'Taming', 'Carpentry', 'Runecrafting', 'Social'])
+LABELS=set(['Level', 'Tier', 'Experience', 'HotM Experience', 'HotF Experience', 'Mithril Powder', 'Gemstone Powder', 'Glacite Powder', 'Tokens of the Mountain', 'Tokens of the Forest', 'Mining Speed', 'Mining Fortune', 'Foraging Fortune', 'Hunting Fortune', 'Charm Chance', 'Pristine', 'Breaking Power', 'Magical Power', 'Bonus Commissions Remaining', 'Daily Bonus Commissions', 'Charges', 'Remaining Charges', 'Copper', 'Bits', 'Motes', 'Whispers', 'Forest Whispers', 'Desert Whispers', 'Chocolate', 'Progress', 'Cost', 'Next Level Cost', 'Powder Cost', 'Fuel', 'Organic Matter', 'Item Tier', 'Collection', 'Health', 'Defense', 'Strength', 'Crit Damage', 'Crit Chance', 'Intelligence', 'Speed', 'Sea Creature Chance', 'Fishing Speed', 'Purse', 'Piggy', 'Bank', 'Mana', 'Farming Fortune', 'Mining Wisdom', 'Foraging Wisdom', 'Combat Wisdom', 'Fishing Wisdom', 'Enchanting Wisdom', 'Alchemy Wisdom', 'Taming Wisdom', 'Hunting Wisdom', 'Ability Damage', 'Bonus Attack Speed', 'True Defense', 'Vitality', 'Mending', 'Sweep', 'Pressure Resistance', 'Fossil Dust', 'Soulflow', 'Farming', 'Mining', 'Foraging', 'Combat', 'Fishing', 'Hunting', 'Enchanting', 'Alchemy', 'Taming', 'Carpentry', 'Runecrafting', 'Social'])
 def facts(value):
     if value['completeSystem'] is not False or not isinstance(value['facts'],list) or len(value['facts'])>54:raise ValueError('invalid facts')
     out=[]
@@ -95,7 +95,7 @@ def facts(value):
         fields=[]
         for f in row['fields']:
             v=f['value'];mx=f['maximum'];unit=f['unit']
-            if f['label'] not in LABELS or unit not in (None,'XP','coins','Powder','Whispers','Bits','Motes','%'):raise ValueError('invalid field label')
+            if f['label'] not in LABELS or unit not in (None,'XP','coins','Powder','Whispers', 'Forest Whispers', 'Desert Whispers','Bits','Motes','%'):raise ValueError('invalid field label')
             if isinstance(v,bool) or not isinstance(v,(int,float)) or not math.isfinite(v) or abs(v)>1e15:raise ValueError('invalid field value')
             if mx is not None and (isinstance(mx,bool) or not isinstance(mx,(int,float)) or not math.isfinite(mx) or not 0<=mx<=1e15):raise ValueError('invalid maximum')
             fields.append(dict(label=f['label'],value=v,maximum=mx,unit=unit))
@@ -115,6 +115,15 @@ def values(key, value):
         field = key[5:]; n = value[field]
         if isinstance(n, bool) or not isinstance(n, (float, int)) or not math.isfinite(n) or not 0 <= n <= 1e15: raise ValueError('invalid balance')
         return {field: n}
+    if key=='commissions':
+        out={}
+        if 'remainingBonusCommissions' in value:out['remainingBonusCommissions']=integer(value['remainingBonusCommissions'],0,100)
+        if 'dailyBonusAvailable' in value:
+            if value['dailyBonusAvailable'] is not True:raise ValueError('invalid bonus marker')
+            out['dailyBonusAvailable']=True
+        if 'nextResetSecondsAtObservation' in value:out['nextResetSecondsAtObservation']=integer(value['nextResetSecondsAtObservation'],0,86400)
+        if not out or out.get('remainingBonusCommissions')==0 and out.get('dailyBonusAvailable') is True:raise ValueError('invalid or conflicting commission counters')
+        return out
     if key == 'huntaxe': return {'weapon': item(value['weapon'])}
     storage = r'storage:(?:(?:Small |Medium |Large |Greater |Jumbo )?Backpack(?: \(Slot #\d{1,2}\))?|Ender Chest(?: \(\d+/\d+\))?|Storage \(\d+/\d+\))'
     if key in ('inventory','toolkit', 'minion', 'garden') or re.fullmatch(storage, key):
@@ -142,7 +151,7 @@ def project(blob, owner, now=None):
     if len(blob) > LIMIT: raise ValueError('oversized snapshot')
     owner = text(owner, r'[a-f0-9]{32}')
     root = json.loads(blob)
-    if root['schemaVersion'] != 1 or root['collectorVersion'] not in ('0.1.0', '0.1.1', '0.2.0', '0.2.1', '0.2.2', '0.3.0'): raise ValueError('unsupported schema')
+    if root['schemaVersion'] != 1 or root['collectorVersion'] not in ('0.1.0', '0.1.1', '0.2.0', '0.2.1', '0.2.2', '0.3.0', '0.3.1'): raise ValueError('unsupported schema')
     now = int(time.time()*1000) if now is None else now
     exported = integer(root['exportedAt'], now-86400_000, now+5000)
     profiles = root['profiles']

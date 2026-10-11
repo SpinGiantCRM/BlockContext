@@ -45,7 +45,7 @@ public final class MenuParser {
         if(!m.matches()||Set.of("None","No Weapon").contains(m.group(1)))return Map.of();
         Map<String,Object> out=new LinkedHashMap<>();out.put("status","partial");out.put("displayName",m.group(1).trim());out.put("stars",m.group(2)==null?null:m.group(2).length());out.put("completeWeaponDetails",false);return out;
     }
-    private static final Set<String> FACT_LABELS=Set.of("Level","Tier","Experience","HotM Experience","HotF Experience","Mithril Powder","Gemstone Powder","Glacite Powder","Tokens of the Mountain","Tokens of the Forest","Mining Speed","Mining Fortune","Foraging Fortune","Hunting Fortune","Charm Chance","Pristine","Breaking Power","Magical Power","Bonus Commissions Remaining","Daily Bonus Commissions","Charges","Remaining Charges","Copper","Bits","Motes","Whispers","Chocolate","Progress","Cost","Next Level Cost","Powder Cost","Fuel","Organic Matter","Item Tier","Collection","Health","Defense","Strength","Crit Damage","Crit Chance","Intelligence","Speed","Sea Creature Chance","Fishing Speed","Purse","Piggy","Bank","Mana","Farming Fortune","Mining Wisdom","Foraging Wisdom","Combat Wisdom","Fishing Wisdom","Enchanting Wisdom","Alchemy Wisdom","Taming Wisdom","Hunting Wisdom","Ability Damage","Bonus Attack Speed","True Defense","Vitality","Mending","Sweep","Pressure Resistance","Fossil Dust","Soulflow","Farming","Mining","Foraging","Combat","Fishing","Hunting","Enchanting","Alchemy","Taming","Carpentry","Runecrafting","Social");
+    private static final Set<String> FACT_LABELS=Set.of("Level","Tier","Experience","HotM Experience","HotF Experience","Mithril Powder","Gemstone Powder","Glacite Powder","Tokens of the Mountain","Tokens of the Forest","Mining Speed","Mining Fortune","Foraging Fortune","Hunting Fortune","Charm Chance","Pristine","Breaking Power","Magical Power","Bonus Commissions Remaining","Daily Bonus Commissions","Charges","Remaining Charges","Copper","Bits","Motes","Whispers","Forest Whispers","Desert Whispers","Chocolate","Progress","Cost","Next Level Cost","Powder Cost","Fuel","Organic Matter","Item Tier","Collection","Health","Defense","Strength","Crit Damage","Crit Chance","Intelligence","Speed","Sea Creature Chance","Fishing Speed","Purse","Piggy","Bank","Mana","Farming Fortune","Mining Wisdom","Foraging Wisdom","Combat Wisdom","Fishing Wisdom","Enchanting Wisdom","Alchemy Wisdom","Taming Wisdom","Hunting Wisdom","Ability Damage","Bonus Attack Speed","True Defense","Vitality","Mending","Sweep","Pressure Resistance","Fossil Dust","Soulflow","Farming","Mining","Foraging","Combat","Fishing","Hunting","Enchanting","Alchemy","Taming","Carpentry","Runecrafting","Social");
     public static List<Map<String,Object>> numericFacts(List<String> lines) {
         List<Map<String,Object>> out=new ArrayList<>();
         for(String raw:lines) {
@@ -55,6 +55,27 @@ public final class MenuParser {
             if(!Double.isFinite(value)||Math.abs(value)>1e15||maximum!=null&&(!Double.isFinite(maximum)||maximum<0||maximum>1e15))continue;
             Map<String,Object> fact=new LinkedHashMap<>();fact.put("label",m.group(1));fact.put("value",value);fact.put("maximum",maximum);fact.put("unit",m.group(5)!=null?"%":m.group(4));out.add(fact);if(out.size()==64)break;
         }
+        return out;
+    }
+    /** Only explicit owner UI counters; a reward marked Daily establishes bonus
+     * availability, never its remaining count. No absence-based completion. */
+    public static Map<String,Object> commissionCounters(List<String> lines) {
+        Map<String,Object> out=new LinkedHashMap<>();Set<Integer> counts=new HashSet<>();Set<Long> resets=new HashSet<>();
+        for(String raw:lines) {
+            String line=clean(raw);
+            Matcher m=Pattern.compile("^Bonus Commissions Remaining: ([0-9]{1,3})$").matcher(line);
+            if(m.matches()){int n=Integer.parseInt(m.group(1));if(n<=100)counts.add(n);}
+            if(line.startsWith("Daily Bonus Resets In: ")){Long n=duration(line.substring("Daily Bonus Resets In: ".length()));if(n!=null&&n<=86400)resets.add(n);}
+        }
+        if(counts.size()==1)out.put("remainingBonusCommissions",counts.iterator().next());
+        if(resets.size()==1)out.put("nextResetSecondsAtObservation",resets.iterator().next());
+        return out;
+    }
+    public static Map<String,Object> commissionMenu(List<ItemView> slots) {
+        var out=commissionCounters(slots.stream().flatMap(i->i.lore().stream()).toList());
+        boolean bonus=slots.stream().filter(i->i.slot()>=9&&i.slot()<18).flatMap(i->i.lore().stream()).map(MenuParser::clean).anyMatch(l->l.matches(".*\\(Daily(?: Bonus)?\\)$"));
+        if(bonus&&Integer.valueOf(0).equals(out.get("remainingBonusCommissions")))out.remove("remainingBonusCommissions");
+        if(bonus)out.put("dailyBonusAvailable",true);
         return out;
     }
     public static List<Map<String,Object>> itemStats(List<String> lore) {

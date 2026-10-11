@@ -24,10 +24,31 @@ export function observedActivities(client:JsonObject):JsonObject[] {
  const observations=object(client.observations),rows:JsonObject[]=[];
  for(const [key,value] of Object.entries(observations)){
   const row=object(value),values=object(row.values),facts=Array.isArray(values.facts)?values.facts:[];
-  const counters=facts.flatMap(f=>Array.isArray(at(f,'fields'))?at(f,'fields') as JsonObject[]:[]).filter(f=>['Bonus Commissions Remaining','Remaining Charges'].includes(String(f.label))&&number(f.value)!==null);
+  const counters=facts.flatMap(f=>Array.isArray(at(f,'fields'))?at(f,'fields') as JsonObject[]:[]).filter(f=>['Bonus Commissions Remaining','Remaining Charges'].includes(String(f.label))&&number(f.value)!==null&&Number.isSafeInteger(f.value)&&Number(f.value)>=0);
   for(const counter of counters){const n=number(counter.value)!,current=row.currentStateVerified===true;
    rows.push({activityId:key+'.'+String(counter.label).toLowerCase().replaceAll(' ','_'),name:String(counter.label),status:current?'known':'stale',eligible:null,remainingCharges:n,completedToday:current?n===0:null,completedAtObservation:n===0,observationSource:'client_observation',observedAt:row.observedAt,scope:'member',nextReset:null,rewards:null,reasonCode:current?'explicit_current_displayed_remaining_counter':'older_observation_does_not_establish_today',evidence:{sourceKey:key,label:counter.label}});
   }
  }
  return rows;
+}
+
+/** Dated owner menu counters supplement daily activities without turning saved
+ * observations into today's completions or inferring absence of a bonus. */
+export function reconcileDailyActivities(activities:JsonObject[],client:JsonObject):JsonObject[] {
+ const rows=Object.entries(object(client.observations)).filter(([key])=>key==='commissions').map(([key,v]):JsonObject=>({key,...object(v)}));
+ return activities.map(activity=>{
+  if(activity.activityId!=='hotm_bonus_commissions'||rows.length===0)return {...activity};
+  const row=rows[0]!,values=object(row.values),current=row.currentStateVerified===true;
+  const n=number(values.remainingBonusCommissions),remaining=n!==null&&Number.isSafeInteger(n)&&n>=0&&n<=100?n:null;
+  const hasBonus=typeof values.dailyBonusAvailable==='boolean'?values.dailyBonusAvailable:null;
+  const seconds=number(values.nextResetSecondsAtObservation),reset=seconds!==null&&Number.isSafeInteger(seconds)&&seconds>=0&&seconds<=86400?seconds:null;
+  return {...activity,status:current&&(remaining!==null||hasBonus!==null)?remaining!==null?'known':'partial':'unknown',
+   remainingCharges:current?remaining:null,completedToday:current&&remaining!==null?remaining===0:current&&hasBonus===true?false:null,
+   dailyBonusAvailable:current?remaining!==null?remaining>0:hasBonus:null,
+   usedCharges:null,totalDailyCharges:null,nextReset:null,
+   source:'client_observation',observedAt:row.observedAt,currentStateVerified:current,
+   lastObservation:{remainingCharges:remaining,dailyBonusAvailable:remaining!==null?remaining>0:hasBonus,nextResetSecondsAtObservation:reset,observedAt:row.observedAt},
+   reasonCode:!current?'saved_observation_does_not_establish_today':remaining!==null?'explicit_current_displayed_remaining_counter':'bonus_marker_does_not_establish_remaining_count',
+   resetCoverage:{status:reset===null?'unknown':'observed',remainingSecondsAtObservation:reset,reasonCode:reset===null?'reset_not_displayed_or_verified':'displayed_duration_not_a_verified_live_countdown'},apiEvidence:activity.evidence};
+ });
 }

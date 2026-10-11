@@ -10,8 +10,16 @@ def fixture():
     return dict(schemaVersion=1,collectorVersion='0.1.0',exportedAt=NOW,activeProfile=OWNER+':strawberry',profiles=[dict(uuid=OWNER,playerName='Player',profileName='Strawberry',observations={'huntaxe':dict(observedAt=NOW,readFrom='opened_menu',values={'weapon':item}),'bank:personalBankCoins':dict(observedAt=NOW,readFrom='opened_menu',values={'personalBankCoins':0}), 'unrecognized':dict(observedAt=NOW,readFrom='opened_menu',values={'chat':'private'})})])
 
 class Projection(unittest.TestCase):
+    def test_commission_counter_projection_and_conflicts(self):
+        r=fixture();r['collectorVersion']='0.3.1';obs=r['profiles'][0]['observations']
+        obs['commissions']=dict(observedAt=NOW,readFrom='opened_menu',values=dict(remainingBonusCommissions=0,nextResetSecondsAtObservation=100,private='discard'))
+        result=json.loads(project(json.dumps(r).encode(),OWNER,NOW))['profiles'][0]['observations']['commissions']['values']
+        self.assertEqual(result,dict(remainingBonusCommissions=0,nextResetSecondsAtObservation=100))
+        obs['commissions']['values']['dailyBonusAvailable']=True
+        with self.assertRaises(ValueError):project(json.dumps(r).encode(),OWNER,NOW)
+
     def test_collector_versions(self):
-        for version in ('0.1.0', '0.1.1','0.2.0','0.2.1','0.2.2','0.3.0'):
+        for version in ('0.1.0', '0.1.1','0.2.0','0.2.1','0.2.2','0.3.0', '0.3.1'):
             r=fixture();r['collectorVersion']=version
             self.assertEqual(json.loads(project(json.dumps(r).encode(),OWNER,NOW))['collectorVersion'],version)
         r=fixture();r['collectorVersion']='9.9.9'
@@ -21,7 +29,7 @@ class Projection(unittest.TestCase):
         self.assertNotIn(b'private',blob);self.assertNotIn(b'discard',blob)
         self.assertEqual(json.loads(blob)['profiles'][0]['observations']['bank:personalBankCoins']['values']['personalBankCoins'],0)
     def test_passive_live_state_changes_and_attributes(self):
-        r=fixture();r['collectorVersion']='0.3.0';r['observedNow']=['inventory'];r['exportIntervalMs']=1000;p=r['profiles'][0];obs=p['observations']
+        r=fixture();r['collectorVersion']='0.3.1';r['observedNow']=['inventory'];r['exportIntervalMs']=1000;p=r['profiles'][0];obs=p['observations']
         weapon=obs['huntaxe']['values']['weapon'];weapon['structuredAttributes']=dict(fields=[dict(path='upgrade_level',value=5,semanticStatus='reported_attribute')],omitted=0,truncated=False,complete=False)
         obs['inventory']=dict(observedAt=NOW,readFrom='player_inventory',values=dict(items=[weapon],observedSlots=41,completeStorage=False))
         p['changes']=[dict(path='inventory.items.0.count',previousValue=1,value=2,previousObservedAt=NOW-1000,observedAt=NOW,kind='observed_value_change')]

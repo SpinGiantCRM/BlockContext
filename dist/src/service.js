@@ -1,4 +1,5 @@
-import { observedActivities } from './reported-progression.js';
+import { withDisplayedWhispers } from './whispers.js';
+import { observedActivities, reconcileDailyActivities } from './reported-progression.js';
 import { mapGameFields, stampObservedAt } from './factual-fields.js';
 import { dataContract } from './data-contract.js';
 import { decodeInventory } from './inventory.js';
@@ -55,7 +56,7 @@ export class ProfileService {
         if (!Number.isInteger(offset) || offset < 0 || offset > 50000 || !Number.isInteger(limit) || limit < 1 || limit > 100)
             throw new AppError('INVALID_PAGE', 'Use an offset from 0 to 50000 and a limit from 1 to 100.');
         const namespace = this.upstream.source;
-        const cacheNamespace = `v11:${namespace}`;
+        const cacheNamespace = `v12:${namespace}`;
         const requestKey = [player.toLowerCase(), requestedProfile?.toLowerCase() ?? '', requestedSection ?? 'overview', offset].join(':');
         const recent = (this.repeatedSnapshots.get(requestKey) ?? []).filter(t => this.now() - t < 30000);
         recent.push(this.now());
@@ -122,7 +123,7 @@ export class ProfileService {
         const profile = { id: selected.id, name: selected.name, gameMode: selected.gameMode, selected: selected.selected };
         const availableProfiles = profiles.map(({ id, name, selected, gameMode }) => ({ id, name, selected, gameMode }));
         let garden = selected.sections.garden;
-        if (requestedSection === undefined || requestedSection === 'garden') {
+        if (requestedSection === undefined || requestedSection === 'garden' || requestedSection === 'data_contract') {
             try {
                 const snapshot = await this.cache.snapshot(`${cacheNamespace}:garden:${selected.id}`, 300_000, 1800_000, async () => {
                     const raw = await this.upstream.garden(selected.id), retrievedAt = this.now();
@@ -184,7 +185,9 @@ export class ProfileService {
             }
         }
         if (requestedSection === 'data_contract') {
-            selected.sections.data_contract = dataContract(selected.sections, await this.client.query(uuid, selected.name));
+            // Assemble per request: shared endpoint data and member Greenhouse facts
+            // have different scopes and retrieval times and must not enter each other's cache.
+            selected.sections.data_contract = dataContract({ ...selected.sections, garden }, await this.client.query(uuid, selected.name));
             stampObservedAt(selected.sections.data_contract, result.value.retrievedAt);
         }
         if (requestedSection) {
@@ -192,8 +195,17 @@ export class ProfileService {
             const data = { ...original.data };
             if (requestedSection)
                 data.clientObservations = await this.client.query(uuid, selected.name, requestedSection === 'dailies' ? undefined : requestedSection);
-            if (requestedSection === 'dailies')
+            if (requestedSection === 'dailies') {
                 data.currentObservedActivities = observedActivities(data.clientObservations);
+                data.activities = reconcileDailyActivities(data.activities, data.clientObservations);
+            }
+            if (requestedSection === 'mining') {
+                const client = await this.client.query(uuid, selected.name);
+                const daily = reconcileDailyActivities(selected.sections.dailies.data.activities, client).find(a => a.activityId === 'hotm_bonus_commissions');
+                data.commissions = { ...data.commissions, apiDailyBonusesRemaining: null, dailyBonusesRemaining: daily.remainingCharges, reasonCode: daily.reasonCode ?? 'not_exposed_in_verified_profile_fields', daily };
+            }
+            if (requestedSection === 'foraging')
+                data.whispers = withDisplayedWhispers(data.whispers, data.clientObservations);
             const pagination = {};
             for (const [key, value] of Object.entries(data)) {
                 if (key === 'storageWarnings')
@@ -266,8 +278,8 @@ export class ProfileService {
         for (const name of ['stats', 'skills', 'currencies', 'slayers', 'dungeons'])
             summary[name] = name === 'dungeons' ? { ...selected.sections.dungeons, data: { ...selected.sections.dungeons.data, recentRuns: undefined, treasureChests: undefined, types: Object.fromEntries(Object.entries(selected.sections.dungeons.data.types).map(([k, v]) => [k, { ...v, bestRuns: undefined }])) } } : selected.sections[name];
         summary.mining = { status: selected.sections.mining.status, heartOfTheMountain: { ...selected.sections.mining.data.heartOfTheMountain, nodes: undefined, nodesInOverview: false }, powders: selected.sections.mining.data.powders, forgeJobs: selected.sections.mining.data.forgeJobs, goldCollection: selected.sections.mining.data.goldCollection };
-        summary.foraging = { status: selected.sections.foraging.status, heartOfTheForest: { ...selected.sections.foraging.data.heartOfTheForest, nodes: undefined, nodesInOverview: false }, whispers: selected.sections.foraging.data.whispers };
-        summary.dailyStatus = { ...selected.sections.dailies, data: { activities: selected.sections.dailies.data.activities.map(({ activityId, name, status, completedToday, remainingCharges, nextReset }) => ({ activityId, name, status, completedToday, remainingCharges, nextReset })) } };
+        summary.foraging = { status: selected.sections.foraging.status, heartOfTheForest: { ...selected.sections.foraging.data.heartOfTheForest, nodes: undefined, nodesInOverview: false }, whispers: withDisplayedWhispers(selected.sections.foraging.data.whispers, summary.clientObservations) };
+        summary.dailyStatus = { ...selected.sections.dailies, data: { activities: reconcileDailyActivities(selected.sections.dailies.data.activities, summary.clientObservations) } };
         summary.systems = selected.sections.systems.data.registry;
         const stats = selected.sections.stats, activeEffects = stats.data.activePotionEffects, pausedEffects = stats.data.pausedPotionEffects;
         summary.stats = { ...stats, data: { ...stats.data, activePotionEffects: activeEffects?.slice(0, 10) ?? null, pausedPotionEffects: pausedEffects?.slice(0, 10) ?? null, potionEffectsInOverview: { limit: 10, activeTruncated: (activeEffects?.length ?? 0) > 10, pausedTruncated: (pausedEffects?.length ?? 0) > 10 } } };

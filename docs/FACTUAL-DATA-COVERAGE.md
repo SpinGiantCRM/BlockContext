@@ -1,6 +1,6 @@
 # Factual game data coverage
 
-Reviewed 11 October 2026. Backend 0.9.0 and Collector 0.3.0 provide a generic factual interface. The requested-data document is an ideal contract: an unavailable source is explicitly unknown, not a fabricated value. This release does not certify every game mechanic or effective-stat formula.
+Reviewed 11 October 2026. Backend 0.9.1 and Collector 0.3.1 provide a generic factual interface. The requested-data document is an ideal contract: an unavailable source is explicitly unknown, not a fabricated value. This release does not certify every game mechanic or effective-stat formula.
 
 ## Included and excluded
 
@@ -42,3 +42,13 @@ The mod does not automatically open bank/storage/progression menus. A passive Mi
 - [Official API](https://api.hypixel.net/): profile/Garden/Museum/own auction/Bingo endpoints and public definitions/markets.
 - [Pinned MIT-licensed NEU data](https://github.com/NotEnoughUpdates/NotEnoughUpdates-REPO/tree/79c0356d2117e40f1d75c06861126ebaa38c5af6): XP, nodes, shards and bestiary; bundled license. Arithmetic is evaluated by a bounded local interpreter, with no remote execution.
 - [Pinned SkyCrypt counter implementation](https://github.com/SkyCryptWebsite/SkyCrypt-Backend/blob/5252bf610310893598916301753486bc4b13ab7d/src/stats/mining.go): source consulted for reported counter semantics/numerical reference facts; no SkyCrypt code is distributed.
+
+## Daily and Whisper evidence in 0.9.1
+
+- Missing/null evidence is unknown. Experience enchantments use enchantment levels, distinct from skill/pet XP.
+- Garden contract coverage includes the separately cached shared Garden endpoint, member Greenhouse snapshot and their distinct retrieval times. Availability of a domain does not certify every requirement.
+- Modern `foraging_core.whispers` reports Forest/Desert totals and per-preset `spent` and `spent_non_refundable` counters. Missing counters and selected presets stay unknown. They are not summed across presets or subtracted to invent a spendable balance. Current owner-displayed Forest/Desert balances are separate evidence. Legacy available/spent fields remain supported.
+- A supported Commissions menu can establish that a Daily bonus is displayed; that does not establish the number remaining. An explicit remaining-count or reset-duration line is captured if the server supplies it. Saved/closed-menu observations do not establish today's state. No fixed reset timezone, four-charge assumption, absence-based completion, XP-based completion or continuous API polling is used.
+- The live tool requires a current export from the active owner/profile. A running bridge with an old disconnected export is unavailable, even though dated saved observations can remain readable.
+
+Modern Whisper schema reference: [Skyblocker ForagingCore model](https://github.com/SkyblockerMod/Skyblocker/blob/32ed634695a54f97cf8ae2dc234bd7bedfbfcc2f/src/main/java/de/hysky/skyblocker/skyblock/profileviewer2/model/ForagingCore.java). Displayed balance semantics: [SkyHanni HotF reader](https://github.com/hannibal002/SkyHanni/blob/88c8bf2f566f42150e869fe9cc7b78dff05dc086/src/main/java/at/hannibal2/skyhanni/data/hotx/HotfData.kt). Daily marker reference: [NEU commission timer reader](https://github.com/NotEnoughUpdates/NotEnoughUpdates/blob/9b1fcfebc646e9fb69f99006327faa3e734e5f51/src/main/java/io/github/moulberry/notenoughupdates/overlays/TimersOverlay.java). These implementations were consulted for data formats; their code is not distributed in BlockContext.

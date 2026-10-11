@@ -53,6 +53,16 @@ public final class MenuParserTest {
         assert MenuParser.numericFacts(List.of("Coins: 20", "Someone: 34", "Mining Speed: NaN", "Mining Speed: 12 do things")).isEmpty();
         assert MenuParser.parse("Heart of the Mountain",List.of(new MenuParser.ItemView(1,null,"Mining Speed",List.of("Level 20/50"),Map.of()))).get("completeSystem").equals(false);
         assert MenuParser.parse("Huntaxe",List.of(new MenuParser.ItemView(22,"HYPER_CLEAVER","Fabled Hyper Cleaver",List.of("§ka §5EPIC DUNGEON SWORD §ka"),weapon))).get("weapon").equals(weapon);
+        assert MenuParser.numericFacts(List.of("Forest Whispers: 2,160", "Desert Whispers: 0")).size()==2;
+        assert MenuParser.commissionCounters(List.of("Bonus Commissions Remaining: 0")).get("remainingBonusCommissions").equals(0);
+        assert MenuParser.commissionCounters(List.of("Bonus Commissions Remaining: 2", "Bonus Commissions Remaining: 1")).isEmpty();
+        assert MenuParser.commissionCounters(List.of("Someone: Bonus Commissions Remaining: 0", "Bonus Commissions Remaining: -1", "Bonus Commissions Remaining: 1.5")).isEmpty();
+        assert MenuParser.commissionCounters(List.of("Daily Bonus Resets In: 1h 20m")).get("nextResetSecondsAtObservation").equals(4800L);
+        var daily=new MenuParser.ItemView(9,null,"Commission",List.of("+900 HotM XP (Daily Bonus)"),Map.of());
+        assert MenuParser.commissionMenu(List.of(daily)).get("dailyBonusAvailable").equals(true);
+        assert !MenuParser.commissionMenu(List.of(daily)).containsKey("remainingBonusCommissions");
+        assert MenuParser.commissionMenu(List.of(new MenuParser.ItemView(8,null,"Other",daily.lore(),Map.of()))).isEmpty();
+        assert MenuParser.commissionMenu(List.of()).isEmpty();
         var safe=ItemFacts.project(Map.of("uuid","b".repeat(32),"owner","Secret","petInfo",Map.of("type","GOLDEN_DRAGON","exp",12345),"new_item_counter",12));
         assert !safe.toString().contains("Secret");assert !safe.toString().contains("bbbbbbbb");assert safe.toString().contains("new_item_counter");
         assert MenuParser.itemStats(List.of("Damage: +212.5 (+20) (+594.75)")).get(0).get("value").equals(212.5);

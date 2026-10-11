@@ -90,6 +90,8 @@ public final class BlockContextClient implements ClientModInitializer {
         stateValues.put("dungeonHudObserved",sidebar.stream().map(MenuParser::clean).anyMatch(l->l.matches("(?:The Catacombs|Catacombs|Dungeon).*")));
         observe(observations,"liveState",stateValues,"player_state",now);
         for(var e:MenuParser.tabBuffs(lines).entrySet())observe(observations,e.getKey(),e.getValue(),"tab_display",now);
+        var commissionCounters=MenuParser.commissionCounters(lines);
+        if(!commissionCounters.isEmpty())observe(observations,"commissions",commissionCounters,"tab_display",now);
         List<Map<String,Object>> ownItems=new ArrayList<>();
         for(int slot=0;slot<41;slot++){var view=item(client.player.getInventory().getItem(slot),slot);if(view.id()!=null)ownItems.add(view.item());}
         observe(observations,"inventory",Map.of("items",ownItems,"observedSlots",41,"completeStorage",false),"player_inventory",now);
@@ -100,6 +102,7 @@ public final class BlockContextClient implements ClientModInitializer {
             if(kind!=null) {
                 List<MenuParser.ItemView> items=new ArrayList<>();int count=Math.min(54,menu.getRowCount()*9);
                 for(int slot=0;slot<count;slot++)items.add(item(menu.getSlot(slot).getItem(),slot));
+                if(title.equals("Commissions")){var commissions=MenuParser.commissionMenu(items);if(!commissions.isEmpty())observe(observations,"commissions",commissions,"opened_menu",now);}
                 Map<String,Object> value=MenuParser.parse(title,items);
                 if(kind.equals("buffs"))for(var e:value.entrySet()) { @SuppressWarnings("unchecked") Map<String,Object> v=(Map<String,Object>)e.getValue();observe(observations,e.getKey(),v,"opened_menu",now); }
                 else if(kind.equals("bank"))for(var e:value.entrySet())observe(observations,"bank:"+e.getKey(),Map.of(e.getKey(),e.getValue()),"opened_menu",now);
@@ -163,7 +166,7 @@ public final class BlockContextClient implements ClientModInitializer {
     private void inactive(){if(wasActive){wasActive=false;snapshot(false);}lastProfile=null;}
     private void snapshot(boolean active) {
         if(profiles.isEmpty())return;
-        Map<String,Object> root=new LinkedHashMap<>();root.put("schemaVersion",1);root.put("collectorVersion","0.3.0");root.put("exportedAt",System.currentTimeMillis());root.put("activeProfile",active?lastProfile:null);root.put("profiles",new ArrayList<>(profiles.values()));root.put("observedNow",active?new ArrayList<>(observedNow):List.of());root.put("exportIntervalMs",1000);root.put("evictedObservations",evictedObservations);
+        Map<String,Object> root=new LinkedHashMap<>();root.put("schemaVersion",1);root.put("collectorVersion","0.3.1");root.put("exportedAt",System.currentTimeMillis());root.put("activeProfile",active?lastProfile:null);root.put("profiles",new ArrayList<>(profiles.values()));root.put("observedNow",active?new ArrayList<>(observedNow):List.of());root.put("exportIntervalMs",1000);root.put("evictedObservations",evictedObservations);
         byte[] bytes=JSON.toJson(root).getBytes(java.nio.charset.StandardCharsets.UTF_8);int evicted=0;
         while(bytes.length>1024*1024&&evicted<768) {
             boolean removed=false;for(var profile:profiles.values()){

@@ -28,6 +28,7 @@ export function domainFor(path:string):string {
  return Object.entries(DOMAIN_ROOTS).flatMap(([domain,roots])=>roots.filter(root=>p===root||p.startsWith(root+'.')).map(root=>({domain,length:root.length}))).sort((a,b)=>b.length-a.length)[0]?.domain??'other_game_systems';
 }
 export function fieldUnit(path:string):string|null {
+ if(/(?:^|\.)enchantments\.[a-z0-9_]+$/.test(path))return 'enchantment level';
  if(/(?:coin_purse|bank_account|\.balance|\.amount_coins|coins_paid)$/.test(path))return 'SkyBlock coins';
  if(/(?:experience|\.xp|_xp|\.exp)$/.test(path))return 'XP';
  if(/(?:powder_(?:mithril|gemstone|glacite)(?:_total)?|powder_spent_(?:mithril|gemstone|glacite))$/.test(path))return 'powder';
