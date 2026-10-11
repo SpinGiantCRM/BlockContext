@@ -8,6 +8,8 @@ public final class MenuParser {
     public record ItemView(int slot, String id, String name, List<String> lore, Map<String,Object> item) {}
     private static final Pattern DURATION = Pattern.compile("(\\d{1,7})\\s*(days?|hours?|minutes?|seconds?|[dhms])", Pattern.CASE_INSENSITIVE);
     private static final Pattern PROFILE = Pattern.compile("^Profile: ([A-Za-z][A-Za-z ]{0,31}?)(?: [^A-Za-z ].*)?$");
+    // Names verified against Hypixel's public item resource. No broad title substring matching.
+    private static final Set<String> HUNTAXE_TITLES = Set.of("Worn Huntaxe - Genesis", "Sharpened Huntaxe - Dominus", "Reinforced Huntaxe - Cursus", "Savage Huntaxe - Praedator", "Prime Huntaxe - Nex Titanum");
     private static final Set<String> BANK_TITLES = Set.of("Bank", "Banker", "Bank Account", "Personal Bank", "Personal Bank Account", "Co-op Bank", "Co-op Bank Account");
     private static final Set<String> GARDEN_TITLES = Set.of("Greenhouse", "Greenhouse Management", "Mutation Analysis", "Composter", "Crop Diagnostics");
     public static String clean(String value) { return value == null ? "" : value.replaceAll("§.", "").trim(); }
@@ -57,7 +59,7 @@ public final class MenuParser {
     }
     public static String kind(String title) {
         title=clean(title);
-        if(title.equals("Prime Huntaxe - Nex Titanum")||title.matches("Huntaxe(?: \\(Slot #\\d{1,2}\\))?"))return "huntaxe";
+        if(HUNTAXE_TITLES.contains(title)||title.matches("Huntaxe(?: \\(Slot #\\d{1,2}\\))?"))return "huntaxe";
         if(Set.of("Heart of the Mountain","Heart of the Mountain (1/5)","Commissions","The Forge","Forge","Crystal Nucleus").contains(title))return "mining";
         if(Set.of("Heart of the Forest","Heart of the Forest (1/5)","Whispers").contains(title))return "foraging";
         if(Set.of("Hunting Box","Hunting Attributes","Hunting Traps","Fusion Machine").contains(title))return "hunting";

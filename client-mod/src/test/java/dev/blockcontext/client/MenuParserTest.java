@@ -29,6 +29,13 @@ public final class MenuParserTest {
         Map<String,Object> weapon=Map.of("id","HYPER_CLEAVER","reforge","fabled","enchantments",Map.of("sharpness",6));
         assert MenuParser.parse("Huntaxe",List.of(new MenuParser.ItemView(22,"HYPER_CLEAVER","Fabled Hyper Cleaver",List.of("§5EPIC DUNGEON SWORD"),weapon))).get("weapon").equals(weapon);
         assert MenuParser.parse("Prime Huntaxe - Nex Titanum",List.of(new MenuParser.ItemView(22,"HYPER_CLEAVER","Fabled Hyper Cleaver",List.of("§5EPIC DUNGEON SWORD", "Click to take!"),weapon))).get("weapon").equals(weapon);
+        for(String title:List.of("Worn Huntaxe - Genesis", "Sharpened Huntaxe - Dominus", "Reinforced Huntaxe - Cursus", "Savage Huntaxe - Praedator", "Prime Huntaxe - Nex Titanum")) {
+            assert "huntaxe".equals(MenuParser.kind(title));
+            assert MenuParser.parse(title,List.of(new MenuParser.ItemView(22,"HYPER_CLEAVER","Fabled Hyper Cleaver",List.of("§5EPIC DUNGEON SWORD"),weapon))).get("weapon").equals(weapon):title;
+            assert MenuParser.kind("Trade: "+title)==null;
+            assert MenuParser.parse(title,List.of(new MenuParser.ItemView(23,"HYPER_CLEAVER","Fabled Hyper Cleaver",List.of("§5EPIC DUNGEON SWORD"),weapon))).isEmpty();
+        }
+        assert MenuParser.kind("Worn Huntaxe - Nex Titanum")==null;
         assert MenuParser.parse("Prime Huntaxe - Nex Titanum",List.of(new MenuParser.ItemView(22,"STONE","Placeholder",List.of("Click to take!"),Map.of()))).isEmpty();
         assert MenuParser.parse("Huntaxe",List.of(new MenuParser.ItemView(23,"HYPER_CLEAVER","Fabled Hyper Cleaver",List.of("§5EPIC DUNGEON SWORD"),weapon))).isEmpty();
         var balance=new MenuParser.ItemView(1,null,"Balance",List.of("Current balance: 12,345.67 coins"),Map.of());

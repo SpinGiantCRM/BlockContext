@@ -8,7 +8,7 @@ const item = z.object({ abilityScrolls: z.array(z.string().regex(/^[A-Z_]{1,96}$
 const buff = z.object({ active: z.boolean(), remainingSecondsAtObservation: z.number().int().min(0).max(10 * 365 * 86400).nullable() });
 const observation = z.object({ observedAt: z.number().int().nonnegative(), readFrom: z.enum(['tab_display', 'opened_menu', 'player_inventory']), values: z.unknown() });
 const profile = z.object({ uuid: z.string().regex(/^[a-f0-9]{32}$/), playerName: z.string().regex(/^[a-zA-Z0-9_]{1,16}$/), profileName: z.string().regex(/^[A-Za-z][A-Za-z ]{0,31}$/), lastSeenAt: z.number().int().nonnegative().optional(), observations: z.record(z.string().max(96), observation).refine(v => Object.keys(v).length <= 24) });
-const snapshot = z.object({ schemaVersion: z.literal(1), collectorVersion: z.enum(['0.1.0', '0.1.1', '0.2.0', '0.2.1']), exportedAt: z.number().int().nonnegative(), activeProfile: z.string().max(70).nullable(), profiles: z.array(profile).max(8) });
+const snapshot = z.object({ schemaVersion: z.literal(1), collectorVersion: z.enum(['0.1.0', '0.1.1', '0.2.0', '0.2.1', '0.2.2']), exportedAt: z.number().int().nonnegative(), activeProfile: z.string().max(70).nullable(), profiles: z.array(profile).max(8) });
 const coins = z.number().finite().min(0).max(1e15);
 const bankFields = ['personalBankCoins', 'sharedProfileBankCoins', 'bankCoinsUnclassified'];
 const observedItems = z.object({ items: z.array(item).max(54), observedSlots: z.number().int().min(0).max(54), completeStorage: z.literal(false), greenhouseNextStageSecondsAtObservation: z.number().int().min(0).max(10 * 365 * 86400).optional() });

@@ -11,7 +11,7 @@ def fixture():
 
 class Projection(unittest.TestCase):
     def test_collector_versions(self):
-        for version in ('0.1.0', '0.1.1','0.2.0','0.2.1'):
+        for version in ('0.1.0', '0.1.1','0.2.0','0.2.1','0.2.2'):
             r=fixture();r['collectorVersion']=version
             self.assertEqual(json.loads(project(json.dumps(r).encode(),OWNER,NOW))['collectorVersion'],version)
         r=fixture();r['collectorVersion']='9.9.9'

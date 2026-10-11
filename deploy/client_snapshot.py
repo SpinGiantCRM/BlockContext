@@ -93,7 +93,7 @@ def project(blob, owner, now=None):
     if len(blob) > LIMIT: raise ValueError('oversized snapshot')
     owner = text(owner, r'[a-f0-9]{32}')
     root = json.loads(blob)
-    if root['schemaVersion'] != 1 or root['collectorVersion'] not in ('0.1.0', '0.1.1', '0.2.0', '0.2.1'): raise ValueError('unsupported schema')
+    if root['schemaVersion'] != 1 or root['collectorVersion'] not in ('0.1.0', '0.1.1', '0.2.0', '0.2.1', '0.2.2'): raise ValueError('unsupported schema')
     now = int(time.time()*1000) if now is None else now
     exported = integer(root['exportedAt'], now-86400_000, now+5000)
     profiles = root['profiles']
