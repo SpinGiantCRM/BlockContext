@@ -10,6 +10,18 @@ def fixture():
     return dict(schemaVersion=1,collectorVersion='0.1.0',exportedAt=NOW,activeProfile=OWNER+':strawberry',profiles=[dict(uuid=OWNER,playerName='Player',profileName='Strawberry',observations={'huntaxe':dict(observedAt=NOW,readFrom='opened_menu',values={'weapon':item}),'bank:personalBankCoins':dict(observedAt=NOW,readFrom='opened_menu',values={'personalBankCoins':0}), 'unrecognized':dict(observedAt=NOW,readFrom='opened_menu',values={'chat':'private'})})])
 
 class Projection(unittest.TestCase):
+    def test_commission_menu_evidence_is_bounded_and_not_claim_proof(self):
+        r=fixture();r['collectorVersion']='0.3.2';obs=r['profiles'][0]['observations']
+        row=dict(slot=9,displayName='Commission #1',claimableMarker=True,completedMarker=True,dailyBonusMarker=True,numericEvidence=[dict(line=3,subject='hotm_xp',numbers=[900],fraction=False,percent=False,raw='private')],lore='private')
+        obs['commissionMenuEvidence']=dict(observedAt=NOW,readFrom='opened_menu',values=dict(entries=[row],completeSystem=False,claimsVerified=False))
+        data=project(json.dumps(r).encode(),OWNER,NOW)
+        self.assertNotIn(b'private',data)
+        self.assertFalse(json.loads(data)['profiles'][0]['observations']['commissionMenuEvidence']['values']['claimsVerified'])
+        row['numericEvidence'][0]['numbers']=[-1]
+        with self.assertRaises(ValueError):project(json.dumps(r).encode(),OWNER,NOW)
+        row['numericEvidence'][0]['numbers']=[900];obs['commissionMenuEvidence']['readFrom']='player_state'
+        with self.assertRaises(ValueError):project(json.dumps(r).encode(),OWNER,NOW)
+
     def test_commission_counter_projection_and_conflicts(self):
         r=fixture();r['collectorVersion']='0.3.1';obs=r['profiles'][0]['observations']
         obs['commissions']=dict(observedAt=NOW,readFrom='opened_menu',values=dict(remainingBonusCommissions=0,nextResetSecondsAtObservation=100,private='discard'))
@@ -18,8 +30,19 @@ class Projection(unittest.TestCase):
         obs['commissions']['values']['dailyBonusAvailable']=True
         with self.assertRaises(ValueError):project(json.dumps(r).encode(),OWNER,NOW)
 
+    def test_validated_exhaustion_and_partial_claim_counts(self):
+        r=fixture();r['collectorVersion']='0.3.4';obs=r['profiles'][0]['observations']
+        values=dict(remainingBonusCommissions=0,dailyBonusAvailable=False,availabilityEvidence='validated_current_reward_previews',observedClaimTransitions=1,observedBonusClaimTransitions=1,claimCountScope='observed_menu_transitions_this_collector_run',bonusRenewalAfter=NOW-1000,bonusRenewalObservedAt=NOW)
+        obs['commissions']=dict(observedAt=NOW,readFrom='opened_menu',values=values)
+        out=json.loads(project(json.dumps(r).encode(),OWNER,NOW))['profiles'][0]['observations']['commissions']['values']
+        self.assertFalse(out['dailyBonusAvailable']);self.assertEqual(out['remainingBonusCommissions'],0)
+        values['observedBonusClaimTransitions']=2
+        with self.assertRaises(ValueError):project(json.dumps(r).encode(),OWNER,NOW)
+        values['observedBonusClaimTransitions']=1;values.pop('availabilityEvidence')
+        with self.assertRaises(ValueError):project(json.dumps(r).encode(),OWNER,NOW)
+
     def test_collector_versions(self):
-        for version in ('0.1.0', '0.1.1','0.2.0','0.2.1','0.2.2','0.3.0', '0.3.1'):
+        for version in ('0.1.0', '0.1.1','0.2.0','0.2.1','0.2.2','0.3.0', '0.3.1', '0.3.2', '0.3.3', '0.3.4'):
             r=fixture();r['collectorVersion']=version
             self.assertEqual(json.loads(project(json.dumps(r).encode(),OWNER,NOW))['collectorVersion'],version)
         r=fixture();r['collectorVersion']='9.9.9'

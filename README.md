@@ -20,6 +20,8 @@ This starts a **synthetic demo** at `http://127.0.0.1:3008/mcp`; it does not con
 
 See the optional [passive client collector](docs/CLIENT-COLLECTOR.md) for data you manually view in game that the API does not expose. It runs locally without an API key; a separate bridge can sync to your own server.
 
+Commission tracking distinguishes task completion from observed reward claims. Stable validated reward previews can establish that daily bonuses are exhausted; positive remaining counts and exact reset times stay unknown unless explicitly displayed. Claim counts cover observed menu transitions during the collector run. Saved or closed-menu observations do not establish the current daily state.
+
 ## Tools
 
 - `skyblock_profile_context`: compact overview, effective skills/caps, currencies, gear, magical power and Garden coverage.

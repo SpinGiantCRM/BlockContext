@@ -28,13 +28,14 @@ const buff = z.object({ active: z.boolean(), remainingSecondsAtObservation: z.nu
 const observation = z.object({ observedAt: z.number().int().nonnegative(), readFrom: z.enum(['tab_display', 'opened_menu', 'player_inventory', 'sidebar_display', 'action_bar', 'player_state']), values: z.unknown() });
 const change = z.object({ path: z.string().regex(/^[A-Za-z0-9_: .()/\'-]{1,192}$/), previousValue: z.union([z.number().finite().min(-1e15).max(1e15), z.boolean(), z.string().regex(/^[A-Z0-9_:.-]{1,96}$/)]), value: z.union([z.number().finite().min(-1e15).max(1e15), z.boolean(), z.string().regex(/^[A-Z0-9_:.-]{1,96}$/)]), previousObservedAt: z.number().int().nonnegative(), observedAt: z.number().int().nonnegative(), kind: z.literal('observed_value_change') }).refine(c => c.previousObservedAt <= c.observedAt && !/(uuid|token|secret|password|email|chat|message)/i.test(c.path));
 const profile = z.object({ uuid: z.string().regex(/^[a-f0-9]{32}$/), playerName: z.string().regex(/^[a-zA-Z0-9_]{1,16}$/), profileName: z.string().regex(/^[A-Za-z][A-Za-z ]{0,31}$/), lastSeenAt: z.number().int().nonnegative().optional(), changes: z.array(change).max(64).optional(), observations: z.record(z.string().max(96), observation).refine(v => Object.keys(v).length <= 96) });
-const snapshot = z.object({ schemaVersion: z.literal(1), collectorVersion: z.enum(['0.1.0', '0.1.1', '0.2.0', '0.2.1', '0.2.2', '0.3.0', '0.3.1']), exportedAt: z.number().int().nonnegative(), activeProfile: z.string().max(70).nullable(), profiles: z.array(profile).max(8), observedNow: z.array(z.string().max(96)).max(96).optional(), exportIntervalMs: z.number().int().min(1000).max(60000).optional(), evictedObservations: z.number().int().nonnegative().optional() });
+const snapshot = z.object({ schemaVersion: z.literal(1), collectorVersion: z.enum(['0.1.0', '0.1.1', '0.2.0', '0.2.1', '0.2.2', '0.3.0', '0.3.1', '0.3.2', '0.3.3', '0.3.4']), exportedAt: z.number().int().nonnegative(), activeProfile: z.string().max(70).nullable(), profiles: z.array(profile).max(8), observedNow: z.array(z.string().max(96)).max(96).optional(), exportIntervalMs: z.number().int().min(1000).max(60000).optional(), evictedObservations: z.number().int().nonnegative().optional() });
 const coins = z.number().finite().min(0).max(1e15);
 const bankFields = ['personalBankCoins', 'sharedProfileBankCoins', 'bankCoinsUnclassified'];
 const observedItems = z.object({ items: z.array(item).max(54), observedSlots: z.number().int().min(0).max(54), completeStorage: z.literal(false), greenhouseNextStageSecondsAtObservation: z.number().int().min(0).max(10 * 365 * 86400).optional() });
 const labels = ["Level", "Tier", "Experience", "HotM Experience", "HotF Experience", "Mithril Powder", "Gemstone Powder", "Glacite Powder", "Tokens of the Mountain", "Tokens of the Forest", "Mining Speed", "Mining Fortune", "Foraging Fortune", "Hunting Fortune", "Charm Chance", "Pristine", "Breaking Power", "Magical Power", "Bonus Commissions Remaining", "Daily Bonus Commissions", "Charges", "Remaining Charges", "Copper", "Bits", "Motes", "Whispers", "Forest Whispers", "Desert Whispers", "Chocolate", "Progress", "Cost", "Next Level Cost", "Powder Cost", "Fuel", "Organic Matter", "Item Tier", "Collection", "Health", "Defense", "Strength", "Crit Damage", "Crit Chance", "Intelligence", "Speed", "Sea Creature Chance", "Fishing Speed", "Purse", "Piggy", "Bank", "Mana", "Farming Fortune", "Mining Wisdom", "Foraging Wisdom", "Combat Wisdom", "Fishing Wisdom", "Enchanting Wisdom", "Alchemy Wisdom", "Taming Wisdom", "Hunting Wisdom", "Ability Damage", "Bonus Attack Speed", "True Defense", "Vitality", "Mending", "Sweep", "Pressure Resistance", "Fossil Dust", "Soulflow", "Farming", "Mining", "Foraging", "Combat", "Fishing", "Hunting", "Enchanting", "Alchemy", "Taming", "Carpentry", "Runecrafting", "Social"];
 const facts = z.object({ facts: z.array(z.object({ slot: z.number().int().min(0).max(53), displayName: display, fields: z.array(z.object({ label: z.enum(labels), value: z.number().finite().min(-1e15).max(1e15), maximum: z.number().finite().min(0).max(1e15).nullable(), unit: z.enum(['XP', 'coins', 'Powder', 'Whispers', 'Bits', 'Motes', '%']).nullable() })).max(64) })).max(54), observedSlots: z.number().int().min(0).max(54), completeSystem: z.literal(false), items: z.array(item).max(54).optional() });
-const commissions = z.object({ remainingBonusCommissions: z.number().int().min(0).max(100).optional(), dailyBonusAvailable: z.literal(true).optional(), nextResetSecondsAtObservation: z.number().int().min(0).max(86400).optional() }).refine(v => Object.keys(v).length > 0 && !(v.remainingBonusCommissions === 0 && v.dailyBonusAvailable === true));
+const commissions = z.object({ remainingBonusCommissions: z.number().int().min(0).max(100).optional(), dailyBonusAvailable: z.boolean().optional(), nextResetSecondsAtObservation: z.number().int().min(0).max(86400).optional(), observedClaimTransitions: z.number().int().min(0).max(1_000_000).optional(), observedBonusClaimTransitions: z.number().int().min(0).max(1_000_000).optional(), claimCountScope: z.literal('observed_menu_transitions_this_collector_run').optional(), availabilityEvidence: z.literal('validated_current_reward_previews').optional(), bonusRenewalObservedAt: z.number().int().nonnegative().optional(), bonusRenewalAfter: z.number().int().nonnegative().optional() }).refine(v => Object.keys(v).length > 0 && !(v.remainingBonusCommissions === 0 && v.dailyBonusAvailable === true) && !(v.dailyBonusAvailable === false && (v.remainingBonusCommissions !== 0 || v.availabilityEvidence !== 'validated_current_reward_previews')) && ((v.observedClaimTransitions === undefined && v.observedBonusClaimTransitions === undefined) || (v.observedClaimTransitions !== undefined && v.observedBonusClaimTransitions !== undefined && v.claimCountScope === 'observed_menu_transitions_this_collector_run')) && !(v.observedClaimTransitions !== undefined && v.observedBonusClaimTransitions !== undefined && v.observedBonusClaimTransitions > v.observedClaimTransitions) && ((v.bonusRenewalObservedAt === undefined && v.bonusRenewalAfter === undefined) || (v.bonusRenewalObservedAt !== undefined && v.bonusRenewalAfter !== undefined && v.bonusRenewalAfter <= v.bonusRenewalObservedAt)));
+const commissionEvidence = z.object({ entries: z.array(z.object({ slot: z.number().int().min(0).max(53), displayName: z.string().regex(/^[A-Za-z0-9 '():+./%✪★#-]{1,96}$/), claimableMarker: z.boolean(), completedMarker: z.boolean(), dailyBonusMarker: z.boolean(), rewardPreviewValidated: z.boolean().optional(), numericEvidence: z.array(z.object({ line: z.number().int().min(0).max(63), subject: z.enum(['hotm_xp', 'mining_xp', 'mithril_powder', 'gemstone_powder', 'glacite_powder', 'progress', 'completed_counter', 'unclassified']), numbers: z.array(z.number().finite().min(0).max(1e9)).min(1).max(4), fraction: z.boolean(), percent: z.boolean() })).max(32) }).refine(v => v.slot >= 9 && v.slot < 18 || v.displayName === 'Commission Milestones')).max(10), completeSystem: z.literal(false), claimsVerified: z.literal(false) });
 const menuSections = ['mining', 'foraging', 'hunting', 'dailies', 'stats', 'pets', 'collections', 'accessories', 'quests', 'museum', 'orders', 'travel', 'fishing', 'bestiary', 'dungeons', 'slayers', 'events'];
 const sections = SECTIONS;
 export class ClientObservations {
@@ -114,7 +115,13 @@ export class ClientObservations {
             else if (key === 'commissions') {
                 group = 'mining';
                 const result = commissions.safeParse(record.values);
-                if (result.success)
+                if (result.success && (!result.data.availabilityEvidence || record.readFrom === 'opened_menu') && (result.data.bonusRenewalObservedAt === undefined || result.data.bonusRenewalObservedAt <= record.observedAt))
+                    parsed = result.data;
+            }
+            else if (key === 'commissionMenuEvidence') {
+                group = 'mining';
+                const result = commissionEvidence.safeParse(record.values);
+                if (result.success && record.readFrom === 'opened_menu')
                     parsed = result.data;
             }
             else if (key === 'huntaxe') {
@@ -153,7 +160,7 @@ export class ClientObservations {
                 if (result.success)
                     parsed = result.data;
             }
-            if (!parsed || section && section !== 'api_fields' && section !== 'systems' && section !== group && !(section === 'dailies' && key === 'commissions') && !(section === 'foraging' && key === 'tabStats') && !(section === 'storage' && group === 'equipment'))
+            if (!parsed || section && section !== 'api_fields' && section !== 'systems' && section !== group && !(section === 'dailies' && ['commissions', 'commissionMenuEvidence'].includes(key)) && !(section === 'foraging' && key === 'tabStats') && !(section === 'storage' && group === 'equipment'))
                 continue;
             const current = connected && age <= maxAge * 1000 && (raw.observedNow?.includes(key) ?? (key === 'inventory'));
             if (options.live && !current) {
@@ -166,7 +173,7 @@ export class ClientObservations {
             if (values.weapon)
                 values.weapon = normalizedClientItem(values.weapon);
             fieldInputs[key] = { ...values };
-            for (const name of ['items', 'facts'])
+            for (const name of ['items', 'facts', 'entries'])
                 if (Array.isArray(values[name])) {
                     const all = values[name];
                     values[name] = all.slice(offset, offset + limit);

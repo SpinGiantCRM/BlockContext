@@ -78,6 +78,42 @@ public final class MenuParser {
         if(bonus)out.put("dailyBonusAvailable",true);
         return out;
     }
+    /** Bounded numeric menu evidence for validating claim/counter semantics.
+     * No lore text, chat, click events or inferred successful claims are retained. */
+    private static final Pattern COMMISSION_XP = Pattern.compile("^(?:- )?\\+([0-9][0-9,]{0,12}) HotM (?:XP|EXP|Experience)( \\(Daily(?: Bonus)?\\))?$", Pattern.CASE_INSENSITIVE);
+    private static final Pattern COMMISSION_POWDER = Pattern.compile("^(?:- )?\\+?([0-9][0-9,]{0,12}) (?:Mithril|Gemstone|Glacite) Powder$");
+    private static final Pattern COMMISSION_PROGRESS = Pattern.compile("^(?:[-_─━▬▏▎▍▌▋▊▉█ ]{1,100} )?([0-9]{1,3}(?:\\.[0-9]{1,6})?)%$");
+    public static Map<String,Object> commissionEvidence(List<ItemView> slots) {
+        List<Map<String,Object>> entries=new ArrayList<>();
+        for(ItemView item:slots) {
+            String name=clean(item.name());
+            if(!((item.slot()>=9&&item.slot()<18)||name.equals("Commission Milestones")))continue;
+            if(!name.matches("[A-Za-z0-9 '():+./%✪★#-]{1,96}"))continue;
+            List<Map<String,Object>> numbers=new ArrayList<>();boolean claimable=false,completed=false,daily=false;int normalXp=0,dailyXp=0,powder=0,progress=0;
+            int lineIndex=0;
+            for(String raw:item.lore()) {
+                String line=clean(raw);if(lineIndex>=64)break;
+                claimable|=line.equals("Click to claim rewards!")||line.equals("Click to claim!");
+                completed|=line.equals("COMPLETED")||line.equals("COMPLETED!");
+                daily|=line.matches(".*\\(Daily(?: Bonus)?\\)$");
+                Matcher xp=COMMISSION_XP.matcher(line);
+                if(xp.matches()){long amount=Long.parseLong(xp.group(1).replace(",",""));if(amount>0&&amount<=100000){if(xp.group(2)==null)normalXp++;else dailyXp++;}}
+                Matcher powderLine=COMMISSION_POWDER.matcher(line);
+                if(powderLine.matches()){long amount=Long.parseLong(powderLine.group(1).replace(",",""));if(amount>0&&amount<=1e9)powder++;}
+                Matcher progressLine=COMMISSION_PROGRESS.matcher(line);boolean progressValid=progressLine.matches()&&Double.parseDouble(progressLine.group(1))<=100;
+                if(progressValid)progress++;
+                String subject=progressValid?"progress":line.toLowerCase(Locale.ROOT).contains("hotm")?"hotm_xp":line.contains("Mining Experience")?"mining_xp":line.contains("Mithril Powder")?"mithril_powder":line.contains("Gemstone Powder")?"gemstone_powder":line.contains("Glacite Powder")?"glacite_powder":line.startsWith("Progress")?"progress":line.matches("(?:Total )?(?:Commissions Completed|Completed Commissions|Completed): .*")?"completed_counter":"unclassified";
+                Matcher m=Pattern.compile("(?<![A-Za-z0-9])([0-9][0-9,]*(?:\\.[0-9]+)?)(?![A-Za-z0-9])").matcher(line);
+                List<Double> values=new ArrayList<>();
+                while(m.find()&&values.size()<4){double value=Double.parseDouble(m.group(1).replace(",",""));if(Double.isFinite(value)&&value<=1e9)values.add(value);}
+                if(!values.isEmpty()&&numbers.size()<32)numbers.add(Map.of("line",lineIndex,"subject",subject,"numbers",values,"fraction",line.matches(".*[0-9]\\s*/\\s*[0-9].*"),"percent",line.contains("%")));
+                lineIndex++;
+            }
+            boolean validated=normalXp==1&&powder==1&&(progress==1||completed&&claimable)&&dailyXp==(daily?1:0);
+            if(!numbers.isEmpty()||claimable||completed||daily)entries.add(Map.of("slot",item.slot(),"displayName",name,"claimableMarker",claimable,"completedMarker",completed,"dailyBonusMarker",daily,"numericEvidence",numbers,"rewardPreviewValidated",validated));
+        }
+        return Map.of("entries",entries,"completeSystem",false,"claimsVerified",false);
+    }
     public static List<Map<String,Object>> itemStats(List<String> lore) {
         List<Map<String,Object>> out=new ArrayList<>();
         for(String raw:lore) {

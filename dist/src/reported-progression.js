@@ -49,7 +49,9 @@ export function reconcileDailyActivities(activities, client) {
             usedCharges: null, totalDailyCharges: null, nextReset: null,
             source: 'client_observation', observedAt: row.observedAt, currentStateVerified: current,
             lastObservation: { remainingCharges: remaining, dailyBonusAvailable: remaining !== null ? remaining > 0 : hasBonus, nextResetSecondsAtObservation: reset, observedAt: row.observedAt },
-            reasonCode: !current ? 'saved_observation_does_not_establish_today' : remaining !== null ? 'explicit_current_displayed_remaining_counter' : 'bonus_marker_does_not_establish_remaining_count',
+            reasonCode: !current ? 'saved_observation_does_not_establish_today' : values.availabilityEvidence === 'validated_current_reward_previews' && remaining === 0 ? 'validated_reward_previews_show_bonus_exhausted' : remaining !== null ? 'explicit_current_displayed_remaining_counter' : 'bonus_marker_does_not_establish_remaining_count',
+            claimTracking: { observedClaimTransitions: values.observedClaimTransitions ?? null, observedBonusClaimTransitions: values.observedBonusClaimTransitions ?? null, scope: values.claimCountScope ?? null, completeDailyCount: false, completionCounterIsNotClaimCounter: true },
+            bonusReplenishmentEvidence: values.bonusRenewalObservedAt !== undefined ? { observedAfter: values.bonusRenewalAfter, observedBy: values.bonusRenewalObservedAt, exactResetTimeKnown: false, fullRemainingCountKnown: false } : null,
             resetCoverage: { status: reset === null ? 'unknown' : 'observed', remainingSecondsAtObservation: reset, reasonCode: reset === null ? 'reset_not_displayed_or_verified' : 'displayed_duration_not_a_verified_live_countdown' }, apiEvidence: activity.evidence };
     });
 }

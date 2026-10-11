@@ -74,3 +74,21 @@ Current inventory—including a carried Huntaxe—needs no menu opening. Safely 
 Supported progression menus additionally preserve safe item attributes and numeric fields. The latest 64 observed numeric/identifier/boolean changes are retained per profile during the current collector run; the next exported snapshot carries this bounded change window. These are changes in visibility, never proof of sales, ownership loss, purchases or completed dailies. No separate historical database is created. A restart resets this window. Private raw identifiers, arbitrary chat, arbitrary lore, credentials, other-player records and server addresses are excluded.
 
 The export is bounded to 1 MiB and 96 observation keys per profile. `evictedObservations`, per-item attribute truncation/omissions, freshness and pagination declare incomplete coverage. No passive client can supply profile state the server has not transmitted. Menus may still be needed for bank accounts, remote storage and other server-unsent facts; unsupported/changed menu formats fail closed.
+
+## Commission investigation build (0.3.2)
+
+This collector build adds `commissionMenuEvidence` from a manually opened `Commissions` menu. It retains bounded slot/name records, explicit claimable/completed/daily markers and numeric evidence with line positions and broad reward/progress categories. Arbitrary lore and chat text are excluded. Unclassified numbers have no verified counter meaning. The record declares `claimsVerified: false` and `completeSystem: false`; neither a completed task nor a reward preview proves a successful claim. These records do not populate a daily claim count or reset time.
+
+Backend candidate `0.9.2-dev.0` accepts this evidence through the local reader and private SSH projection. It is an investigation build, pending a real menu/claim comparison. Existing commission bonus-presence observations keep their separate timestamps and uncertainty. No new message capture, server request, gameplay input or API polling is introduced.
+
+## Observed commission tracking (0.3.3)
+
+Live testing distinguished completion from claiming: milestone progress advances before the claim. The tracker never treats that counter or HotM XP gains as claim acknowledgements. It samples only the owner's already opened Commissions menu each client tick; exports remain once per second. Stable transitions from completed/claimable to a fresh task establish observed claim transitions. Partial updates, invalid reward formats, profile changes, menu/disconnect gaps and long sampling gaps cannot establish a claim. Counts cover observations in the collector run, not every claim today, and reset when Minecraft restarts.
+
+Two or more validated commission reward previews without a Daily bonus establish zero remaining at that observation. Empty menus, placeholders or incomplete rewards do not. A bonus preview establishes availability but leaves its positive remaining count unknown. A later return of the bonus after validated exhaustion records a replenishment interval; it does not establish an exact reset time or a full starting count. No fixed midnight, timezone or four-charge inference is applied.
+
+These are game-derived observations, with no personal goals/preferences, raw lore, player chat or gameplay inputs. Saved menu data remains dated, and a closed menu does not establish current bonus state. `usedCharges` stays unknown because the observed transition count may omit earlier or unseen claims. The local and remote readers validate the new scalar evidence independently of the API.
+
+## Commission display compatibility (0.3.4)
+
+The live reward tooltip uses list prefixes (`- +410 HOTM Exp`, `- 500 Mithril Powder`) and a decorated progress bar followed by a percentage. Collector 0.3.4 accepts these anchored formats as well as the earlier undecorated forms. Reward amounts must be positive and bounded; progress must be between 0 and 100. Duplicate rewards/progress, unexpected text and missing evidence remain unvalidated. The claim tracker only accepts a zero from the parsed progress field, never an unrelated percentage. No raw tooltip text is exported.

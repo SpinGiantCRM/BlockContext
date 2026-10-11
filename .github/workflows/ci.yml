@@ -24,5 +24,5 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: python -m unittest discover -s test -p "*_test.py"
-      - run: javac -encoding UTF-8 -d client-mod/build/parser-test client-mod/src/main/java/dev/blockcontext/client/MenuParser.java client-mod/src/main/java/dev/blockcontext/client/ItemFacts.java client-mod/src/main/java/dev/blockcontext/client/ObservationChanges.java client-mod/src/test/java/dev/blockcontext/client/MenuParserTest.java
+      - run: javac -encoding UTF-8 -d client-mod/build/parser-test client-mod/src/main/java/dev/blockcontext/client/MenuParser.java client-mod/src/main/java/dev/blockcontext/client/ItemFacts.java client-mod/src/main/java/dev/blockcontext/client/ObservationChanges.java client-mod/src/main/java/dev/blockcontext/client/CommissionTracker.java client-mod/src/test/java/dev/blockcontext/client/MenuParserTest.java
       - run: java -ea -classpath client-mod/build/parser-test dev.blockcontext.client.MenuParserTest

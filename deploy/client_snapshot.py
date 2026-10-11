@@ -107,6 +107,33 @@ def facts(value):
     return result
 
 def values(key, value):
+    if key=='commissionMenuEvidence':
+        if value['completeSystem'] is not False or value['claimsVerified'] is not False:raise ValueError('unverified commission evidence')
+        if not isinstance(value['entries'],list) or len(value['entries'])>10:raise ValueError('invalid commission entries')
+        entries=[]
+        for row in value['entries']:
+            slot=integer(row['slot'],0,53);name=text(row['displayName'],r"[A-Za-z0-9 '():+./%✪★#-]{1,96}")
+            if not (9<=slot<18 or name=='Commission Milestones'):raise ValueError('invalid commission slot')
+            flags={}
+            for k in ('claimableMarker','completedMarker','dailyBonusMarker'):
+                if not isinstance(row[k],bool):raise ValueError('invalid commission marker')
+                flags[k]=row[k]
+            if 'rewardPreviewValidated' in row:
+                if not isinstance(row['rewardPreviewValidated'],bool):raise ValueError('invalid reward validation')
+                flags['rewardPreviewValidated']=row['rewardPreviewValidated']
+            if not isinstance(row['numericEvidence'],list) or len(row['numericEvidence'])>32:raise ValueError('invalid commission numbers')
+            numbers=[]
+            for n in row['numericEvidence']:
+                subject=text(n['subject'],r'hotm_xp|mining_xp|mithril_powder|gemstone_powder|glacite_powder|progress|completed_counter|unclassified')
+                if not isinstance(n['numbers'],list) or not 1<=len(n['numbers'])<=4:raise ValueError('invalid numeric evidence')
+                vals=[]
+                for v in n['numbers']:
+                    if isinstance(v,bool) or not isinstance(v,(int,float)) or not math.isfinite(v) or not 0<=v<=1e9:raise ValueError('invalid numeric evidence')
+                    vals.append(v)
+                if not isinstance(n['fraction'],bool) or not isinstance(n['percent'],bool):raise ValueError('invalid numeric shape')
+                numbers.append(dict(line=integer(n['line'],0,63),subject=subject,numbers=vals,fraction=n['fraction'],percent=n['percent']))
+            entries.append(dict(slot=slot,displayName=name,**flags,numericEvidence=numbers))
+        return dict(entries=entries,completeSystem=False,claimsVerified=False)
     if key in ('cookie', 'godPotion'):
         if not isinstance(value['active'], bool): raise ValueError('invalid buff')
         n = value.get('remainingSecondsAtObservation')
@@ -119,8 +146,19 @@ def values(key, value):
         out={}
         if 'remainingBonusCommissions' in value:out['remainingBonusCommissions']=integer(value['remainingBonusCommissions'],0,100)
         if 'dailyBonusAvailable' in value:
-            if value['dailyBonusAvailable'] is not True:raise ValueError('invalid bonus marker')
-            out['dailyBonusAvailable']=True
+            if not isinstance(value['dailyBonusAvailable'],bool):raise ValueError('invalid bonus marker')
+            out['dailyBonusAvailable']=value['dailyBonusAvailable']
+        if 'availabilityEvidence' in value:out['availabilityEvidence']=text(value['availabilityEvidence'],r'validated_current_reward_previews')
+        if out.get('dailyBonusAvailable') is False and (out.get('remainingBonusCommissions')!=0 or out.get('availabilityEvidence')!='validated_current_reward_previews'):raise ValueError('unverified exhausted bonuses')
+        for k in ('observedClaimTransitions','observedBonusClaimTransitions'):
+            if k in value:out[k]=integer(value[k],0,1_000_000)
+        if any(k in value for k in ('observedClaimTransitions','observedBonusClaimTransitions')):
+            if not all(k in value for k in ('observedClaimTransitions','observedBonusClaimTransitions')):raise ValueError('incomplete observed claim counters')
+            out['claimCountScope']=text(value['claimCountScope'],r'observed_menu_transitions_this_collector_run')
+        if out.get('observedBonusClaimTransitions',0)>out.get('observedClaimTransitions',0):raise ValueError('invalid bonus claim count')
+        if 'bonusRenewalObservedAt' in value or 'bonusRenewalAfter' in value:
+            out['bonusRenewalAfter']=integer(value['bonusRenewalAfter'],0,10**15)
+            out['bonusRenewalObservedAt']=integer(value['bonusRenewalObservedAt'],out['bonusRenewalAfter'],10**15)
         if 'nextResetSecondsAtObservation' in value:out['nextResetSecondsAtObservation']=integer(value['nextResetSecondsAtObservation'],0,86400)
         if not out or out.get('remainingBonusCommissions')==0 and out.get('dailyBonusAvailable') is True:raise ValueError('invalid or conflicting commission counters')
         return out
@@ -151,7 +189,7 @@ def project(blob, owner, now=None):
     if len(blob) > LIMIT: raise ValueError('oversized snapshot')
     owner = text(owner, r'[a-f0-9]{32}')
     root = json.loads(blob)
-    if root['schemaVersion'] != 1 or root['collectorVersion'] not in ('0.1.0', '0.1.1', '0.2.0', '0.2.1', '0.2.2', '0.3.0', '0.3.1'): raise ValueError('unsupported schema')
+    if root['schemaVersion'] != 1 or root['collectorVersion'] not in ('0.1.0', '0.1.1', '0.2.0', '0.2.1', '0.2.2', '0.3.0', '0.3.1', '0.3.2', '0.3.3', '0.3.4'): raise ValueError('unsupported schema')
     now = int(time.time()*1000) if now is None else now
     exported = integer(root['exportedAt'], now-86400_000, now+5000)
     profiles = root['profiles']
@@ -168,9 +206,12 @@ def project(blob, owner, now=None):
         obs={}
         for k, record in source.items():
             if not isinstance(k,str) or len(k)>96: raise ValueError('invalid field')
+            if k=='commissionMenuEvidence' and record['readFrom']!='opened_menu':raise ValueError('invalid commission evidence source')
+            if k=='commissions' and record['values'].get('availabilityEvidence') and record['readFrom']!='opened_menu':raise ValueError('invalid commission tracking source')
             v=values(k,record['values'])
             if v is None: continue
             observed=integer(record['observedAt'], 0, now+5000)
+            if k=='commissions' and v.get('bonusRenewalObservedAt',0)>observed:raise ValueError('renewal newer than its observation')
             if observed < now-86400_000: continue
             if record['readFrom'] not in ('opened_menu','tab_display','player_inventory','sidebar_display','action_bar','player_state'): raise ValueError('invalid source')
             obs[k]=dict(observedAt=observed, readFrom=record['readFrom'], values=v)

@@ -32,6 +32,7 @@ import java.util.concurrent.atomic.AtomicReference;
 public final class BlockContextClient implements ClientModInitializer {
     private static final Gson JSON=new GsonBuilder().serializeNulls().create();
     private final Map<String,Map<String,Object>> profiles=new LinkedHashMap<>();
+    private final Map<String,CommissionTracker> commissionTrackers=new LinkedHashMap<>();
     private final AtomicReference<byte[]> pending=new AtomicReference<>();
     private final ScheduledExecutorService writer=Executors.newSingleThreadScheduledExecutor(r->{Thread t=new Thread(r,"BlockContext snapshot writer");t.setDaemon(true);return t;});
     private Path output;
@@ -56,8 +57,41 @@ public final class BlockContextClient implements ClientModInitializer {
         System.out.println("[BlockContext] Passive local collector loaded; no game actions or external networking.");
     }
     private void tick(Minecraft client) {
-        if(++ticks%20!=0)return;
-        try { collect(client); } catch(Exception ignored) { /* Fail closed; never dump UI data or credentials. */ }
+        try {
+            if(++ticks%20==0)collect(client);
+            collectCommissionTick(client);
+        } catch(Exception ignored) { /* Fail closed; never dump UI data or credentials. */ }
+    }
+    private void collectCommissionTick(Minecraft client) {
+        if(!wasActive||lastProfile==null||client.player==null||client.level==null||client.getConnection()==null||client.getCurrentServer()==null
+            ||!client.getCurrentServer().ip.toLowerCase(Locale.ROOT).matches("(?:[a-z0-9-]+\\.)*hypixel\\.net(?::\\d{1,5})?")
+            ||!(client.gui.screen() instanceof AbstractContainerScreen<?> screen)||!(screen.getMenu() instanceof ChestMenu menu)||!MenuParser.clean(screen.getTitle().getString()).equals("Commissions")){
+            commissionTrackers.values().forEach(CommissionTracker::gap);return;
+        }
+        var objective=client.level.getScoreboard().getDisplayObjective(DisplaySlot.SIDEBAR);
+        if(objective==null||!MenuParser.clean(objective.getDisplayName().getString()).startsWith("SKYBLOCK")){commissionTrackers.values().forEach(CommissionTracker::gap);return;}
+        List<String> lines=new ArrayList<>();
+        for(var info:client.getConnection().getOnlinePlayers()){var name=info.getTabListDisplayName();if(name!=null&&lines.size()<512)lines.addAll(Arrays.asList(name.getString().split("\\n",64)));}
+        TabOverlayAccess tab=(TabOverlayAccess)client.gui.hud.getTabList();
+        if(tab.blockcontext$header()!=null)lines.addAll(Arrays.asList(tab.blockcontext$header().getString().split("\\n",128)));
+        if(tab.blockcontext$footer()!=null)lines.addAll(Arrays.asList(tab.blockcontext$footer().getString().split("\\n",128)));
+        String profile=MenuParser.profile(lines);
+        String key=client.getGameProfile().id().toString().replace("-","")+":"+(profile==null?"":profile.toLowerCase(Locale.ROOT));
+        if(profile==null||!key.equals(lastProfile)){commissionTrackers.values().forEach(CommissionTracker::gap);return;}
+        var state=profiles.get(key);if(state==null)return;
+        @SuppressWarnings("unchecked") var observations=(Map<String,Object>)state.get("observations");
+        List<MenuParser.ItemView> items=new ArrayList<>();int count=Math.min(54,menu.getRowCount()*9);
+        for(int slot=0;slot<count;slot++){
+            var stack=menu.getSlot(slot).getItem();String name=MenuParser.clean(stack.getHoverName().getString());
+            if(!(slot>=9&&slot<18)&&!name.equals("Commission Milestones"))continue;
+            List<String> lore=new ArrayList<>();var received=stack.get(DataComponents.LORE);
+            if(received!=null)for(var line:received.lines()){if(lore.size()>=64)break;String text=line.getString();if(text.length()<=256)lore.add(text);}
+            items.add(new MenuParser.ItemView(slot,null,name,lore,Map.of()));
+        }
+        long now=System.currentTimeMillis();var evidence=MenuParser.commissionEvidence(items);
+        var tracker=commissionTrackers.computeIfAbsent(key,k->new CommissionTracker());var values=new LinkedHashMap<>(MenuParser.commissionMenu(items));values.putAll(tracker.sample(evidence,now));
+        if(!values.isEmpty())observe(observations,"commissions",values,"opened_menu",now);
+        observe(observations,"commissionMenuEvidence",evidence,"opened_menu",now);
     }
     private void collect(Minecraft client) {
         var server=client.getCurrentServer();var connection=client.getConnection();
@@ -73,6 +107,7 @@ public final class BlockContextClient implements ClientModInitializer {
         String uuid=client.getGameProfile().id().toString().replace("-","");String name=client.getGameProfile().name();
         if(!name.matches("[A-Za-z0-9_]{1,16}")) {inactive();return;}
         String key=uuid+":"+profile.toLowerCase(Locale.ROOT);
+        if(lastProfile!=null&&!key.equals(lastProfile))commissionTrackers.values().forEach(CommissionTracker::gap);
         Map<String,Object> state=profiles.computeIfAbsent(key,k->{Map<String,Object> p=new LinkedHashMap<>();p.put("uuid",uuid);p.put("playerName",name);p.put("profileName",profile);p.put("observations",new LinkedHashMap<String,Object>());return p;});
         while(profiles.size()>8)profiles.remove(profiles.keySet().iterator().next());
         @SuppressWarnings("unchecked") Map<String,Object> observations=(Map<String,Object>)state.get("observations");
@@ -102,13 +137,20 @@ public final class BlockContextClient implements ClientModInitializer {
             if(kind!=null) {
                 List<MenuParser.ItemView> items=new ArrayList<>();int count=Math.min(54,menu.getRowCount()*9);
                 for(int slot=0;slot<count;slot++)items.add(item(menu.getSlot(slot).getItem(),slot));
-                if(title.equals("Commissions")){var commissions=MenuParser.commissionMenu(items);if(!commissions.isEmpty())observe(observations,"commissions",commissions,"opened_menu",now);}
+                if(title.equals("Commissions")){
+                    var evidence=MenuParser.commissionEvidence(items);var tracker=commissionTrackers.computeIfAbsent(key,k->new CommissionTracker());
+                    var commissions=new LinkedHashMap<>(MenuParser.commissionMenu(items));commissions.putAll(tracker.sample(evidence,now));
+                    if(!commissions.isEmpty())observe(observations,"commissions",commissions,"opened_menu",now);
+                    observe(observations,"commissionMenuEvidence",evidence,"opened_menu",now);
+                }
                 Map<String,Object> value=MenuParser.parse(title,items);
                 if(kind.equals("buffs"))for(var e:value.entrySet()) { @SuppressWarnings("unchecked") Map<String,Object> v=(Map<String,Object>)e.getValue();observe(observations,e.getKey(),v,"opened_menu",now); }
                 else if(kind.equals("bank"))for(var e:value.entrySet())observe(observations,"bank:"+e.getKey(),Map.of(e.getKey(),e.getValue()),"opened_menu",now);
                 else if(!value.isEmpty())observe(observations,kind.equals("storage")?"storage:"+title:kind,value,"opened_menu",now);
             }
         }
+        if(!observedNow.contains("commissionMenuEvidence"))commissionTrackers.values().forEach(CommissionTracker::gap);
+        while(commissionTrackers.size()>8)commissionTrackers.remove(commissionTrackers.keySet().iterator().next());
         // Never retain an unbounded menu history. Each key holds only its latest observation.
         while(observations.size()>96){observations.remove(observations.keySet().iterator().next());evictedObservations++;}
         lastProfile=key;wasActive=true;
@@ -163,10 +205,10 @@ public final class BlockContextClient implements ClientModInitializer {
         if(tag instanceof NumericTag numeric)return numeric.asNumber().orElse(null);
         return tag.asString().orElse(null);
     }
-    private void inactive(){if(wasActive){wasActive=false;snapshot(false);}lastProfile=null;}
+    private void inactive(){commissionTrackers.values().forEach(CommissionTracker::gap);if(wasActive){wasActive=false;snapshot(false);}lastProfile=null;}
     private void snapshot(boolean active) {
         if(profiles.isEmpty())return;
-        Map<String,Object> root=new LinkedHashMap<>();root.put("schemaVersion",1);root.put("collectorVersion","0.3.1");root.put("exportedAt",System.currentTimeMillis());root.put("activeProfile",active?lastProfile:null);root.put("profiles",new ArrayList<>(profiles.values()));root.put("observedNow",active?new ArrayList<>(observedNow):List.of());root.put("exportIntervalMs",1000);root.put("evictedObservations",evictedObservations);
+        Map<String,Object> root=new LinkedHashMap<>();root.put("schemaVersion",1);root.put("collectorVersion","0.3.4");root.put("exportedAt",System.currentTimeMillis());root.put("activeProfile",active?lastProfile:null);root.put("profiles",new ArrayList<>(profiles.values()));root.put("observedNow",active?new ArrayList<>(observedNow):List.of());root.put("exportIntervalMs",1000);root.put("evictedObservations",evictedObservations);
         byte[] bytes=JSON.toJson(root).getBytes(java.nio.charset.StandardCharsets.UTF_8);int evicted=0;
         while(bytes.length>1024*1024&&evicted<768) {
             boolean removed=false;for(var profile:profiles.values()){

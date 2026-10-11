@@ -50,6 +50,8 @@ test('daily commissions require current explicit evidence; bonus presence is not
  const activities=gameSystems({},{}).dailies.data.activities as JsonObject[],view=(values:JsonObject,current=true)=>reconcileDailyActivities(activities,{observations:{commissions:{values,currentStateVerified:current,observedAt:'2026-10-11T00:00:00Z'}}})[0]!;
  const remaining=view({remainingBonusCommissions:0});assert.equal(remaining.completedToday,true);assert.equal(remaining.remainingCharges,0);assert.equal(remaining.usedCharges,null);assert.equal(remaining.nextReset,null);
  const marker=view({dailyBonusAvailable:true});assert.equal(marker.completedToday,false);assert.equal(marker.remainingCharges,null);assert.equal(marker.status,'partial');
+ const tracked=view({remainingBonusCommissions:0,dailyBonusAvailable:false,availabilityEvidence:'validated_current_reward_previews',observedClaimTransitions:1,observedBonusClaimTransitions:1,claimCountScope:'observed_menu_transitions_this_collector_run'});
+ assert.equal(tracked.reasonCode,'validated_reward_previews_show_bonus_exhausted');assert.equal(tracked.remainingCharges,0);assert.equal(tracked.usedCharges,null);assert.equal(at(tracked,'claimTracking','completeDailyCount'),false);
  const stale=view({remainingBonusCommissions:0},false);assert.equal(stale.completedToday,null);assert.equal(stale.remainingCharges,null);assert.equal(stale.status,'unknown');assert.equal(at(stale,'lastObservation','remainingCharges'),0);
  for(const value of [-1,0.5,NaN,101])assert.equal(view({remainingBonusCommissions:value}).remainingCharges,null);
  assert.equal(observedActivities({observations:{mining:{values:{facts:[{fields:[{label:'Remaining Charges',value:-1}]}]}}}}).length,0);
@@ -76,5 +78,29 @@ test('commission observations survive validation and dailies filtering, independ
   await writeFile(path,JSON.stringify(record),{mode:0o600});const client=new ClientObservations(path,()=>now),response=await client.query('Player','Apple','dailies',{live:true});
   assert.equal(at(response,'observations','commissions','currentStateVerified'),true);assert.equal(at(response,'observations','commissions','values','remainingBonusCommissions'),2);assert.equal(response.apiRequests,0);assert.ok(!JSON.stringify(response).includes('discard'));
   record.profiles[0]!.observations.commissions.values.remainingBonusCommissions=-1;await writeFile(path,JSON.stringify(record));assert.equal((await client.query('Player','Apple','dailies',{live:true})).status,'unavailable');
+ }finally{await rm(dir,{recursive:true,force:true});}
+});
+test('commission menu investigation evidence is not claim proof and excludes raw lore',async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'bc-commission-evidence-')),path=join(dir,'latest.json'),now=1800000000000,uuid='0123456789abcdef0123456789abcdef';
+ const evidence={entries:[{slot:9,displayName:'Commission #1',claimableMarker:true,completedMarker:true,dailyBonusMarker:true,numericEvidence:[{line:3,subject:'hotm_xp',numbers:[900],fraction:false,percent:false,raw:'PRIVATE_LORE_SENTINEL'}],lore:'PRIVATE_LORE_SENTINEL'}],completeSystem:false,claimsVerified:false};
+ const record={schemaVersion:1,collectorVersion:'0.3.2',exportedAt:now,activeProfile:uuid+':apple',observedNow:['commissionMenuEvidence'],profiles:[{uuid,playerName:'Player',profileName:'Apple',observations:{commissionMenuEvidence:{observedAt:now,readFrom:'opened_menu',values:evidence}}}]};
+ try{
+  await writeFile(path,JSON.stringify(record),{mode:0o600});const client=new ClientObservations(path,()=>now),response=await client.query('Player','Apple','dailies',{live:true});
+  assert.equal(response.apiRequests,0);assert.equal(at(response,'observations','commissionMenuEvidence','values','claimsVerified'),false);assert.ok(!JSON.stringify(response).includes('PRIVATE_LORE_SENTINEL'));
+  const daily=reconcileDailyActivities(gameSystems({},{}).dailies.data.activities as JsonObject[],response)[0]!;assert.equal(daily.remainingCharges,null);assert.equal(daily.completedToday,null);
+  record.profiles[0]!.observations.commissionMenuEvidence.readFrom='player_state';await writeFile(path,JSON.stringify(record));assert.equal((await client.query('Player','Apple','dailies',{live:true})).status,'unavailable');
+ }finally{await rm(dir,{recursive:true,force:true});}
+});
+test('live validated exhaustion is known, historical zero is dated, and incomplete evidence stays unknown',async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'bc-commission-zero-')),path=join(dir,'latest.json'),now=1800000000000,uuid='0123456789abcdef0123456789abcdef';
+ const values={remainingBonusCommissions:0,dailyBonusAvailable:false,availabilityEvidence:'validated_current_reward_previews',observedClaimTransitions:1,observedBonusClaimTransitions:1,claimCountScope:'observed_menu_transitions_this_collector_run',private:'PRIVATE_SENTINEL'};
+ const record={schemaVersion:1,collectorVersion:'0.3.4',exportedAt:now,activeProfile:uuid+':apple',observedNow:['commissions'],profiles:[{uuid,playerName:'Player',profileName:'Apple',observations:{commissions:{observedAt:now,readFrom:'opened_menu',values}}}]};
+ const activities=gameSystems({},{}).dailies.data.activities as JsonObject[];
+ try{
+  await writeFile(path,JSON.stringify(record),{mode:0o600});const client=new ClientObservations(path,()=>now),live=await client.query('Player','Apple','dailies',{live:true});
+  assert.equal(live.apiRequests,0);assert.equal(reconcileDailyActivities(activities,live)[0]!.remainingCharges,0);assert.ok(!JSON.stringify(live).includes('PRIVATE_SENTINEL'));
+  record.observedNow=[];await writeFile(path,JSON.stringify(record));const saved=await client.query('Player','Apple','dailies');
+  const dated=reconcileDailyActivities(activities,saved)[0]!;assert.equal(dated.remainingCharges,null);assert.equal(at(dated,'lastObservation','remainingCharges'),0);
+  values.availabilityEvidence='unsupported';record.observedNow=['commissions'];await writeFile(path,JSON.stringify(record));assert.equal((await client.query('Player','Apple','dailies',{live:true})).status,'unavailable');
  }finally{await rm(dir,{recursive:true,force:true});}
 });
