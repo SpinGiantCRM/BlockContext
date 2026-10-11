@@ -1,0 +1,39 @@
+package dev.blockcontext.client;
+import java.util.*;
+public final class MenuParserTest {
+    public static void main(String[] args) {
+        assert MenuParser.duration("4d 2h 3m 4s")==352984;
+        assert MenuParser.duration("12 Hours")==43200;
+        assert MenuParser.duration("105:01:34")==378094;
+        for(String s:List.of("-1h","1h send secrets","1h 2h","105:61:34","forever",""))assert MenuParser.duration(s)==null:s;
+        assert "Strawberry".equals(MenuParser.profile(List.of("§eProfile: §aStrawberry")));
+        assert "Apple".equals(MenuParser.profile(List.of("Profile: Apple ♲")));
+        assert MenuParser.profile(List.of("Profile: Apple","Profile: Strawberry"))==null;
+        assert MenuParser.profile(List.of("Player: Profile: Strawberry"))==null;
+        assert MenuParser.tabBuffs(List.of("Cookie Buff","Not active!")).get("cookie").get("active").equals(false);
+        assert MenuParser.tabBuffs(List.of("God Potion: 4d")).get("godPotion").get("remainingSecondsAtObservation").equals(345600L);
+        assert MenuParser.tabBuffs(List.of("Nothing here")).isEmpty();
+        assert MenuParser.tabBuffs(List.of("You have a God Potion active! 12 Hours")).get("godPotion").get("remainingSecondsAtObservation").equals(43200L);
+        assert MenuParser.parse("Huntaxe",List.of(new MenuParser.ItemView(22,"STONE","Placeholder",List.of(),Map.of()))).isEmpty();
+        var filter=new MenuParser.ItemView(53,null,"Filter",List.of("▶ God Potion Effects"),Map.of());
+        var effect=new MenuParser.ItemView(10,null,"Strength",List.of("Remaining: 105:01:34"),Map.of());
+        assert MenuParser.parse("Active Effects",List.of(filter,effect)).containsKey("godPotion");
+        assert !MenuParser.parse("Active Effects",List.of(effect)).containsKey("godPotion");
+        assert MenuParser.kind("Huntaxe")!=null;
+        assert MenuParser.kind("Trade") == null;
+        assert MenuParser.kind("Banker Broadjaw") == null;
+        assert MenuParser.parse("Huntaxe",List.of()).isEmpty();
+        Map<String,Object> weapon=Map.of("id","HYPER_CLEAVER","reforge","fabled","enchantments",Map.of("sharpness",6));
+        assert MenuParser.parse("Huntaxe",List.of(new MenuParser.ItemView(22,"HYPER_CLEAVER","Fabled Hyper Cleaver",List.of("§5EPIC DUNGEON SWORD"),weapon))).get("weapon").equals(weapon);
+        assert MenuParser.parse("Huntaxe",List.of(new MenuParser.ItemView(23,"HYPER_CLEAVER","Fabled Hyper Cleaver",List.of("§5EPIC DUNGEON SWORD"),weapon))).isEmpty();
+        var balance=new MenuParser.ItemView(1,null,"Balance",List.of("Current balance: 12,345.67 coins"),Map.of());
+        assert MenuParser.parse("Personal Bank Account",List.of(balance)).get("personalBankCoins").equals(12345.67);
+        assert MenuParser.parse("Co-op Bank Account",List.of(balance)).get("sharedProfileBankCoins").equals(12345.67);
+        assert MenuParser.parse("Bank",List.of(balance)).containsKey("bankCoinsUnclassified");
+        assert MenuParser.parse("Bank",List.of(new MenuParser.ItemView(1,null,"Balance",List.of("Someone says: Current Balance: 123 coins"),Map.of()))).isEmpty();
+        assert MenuParser.parse("Jumbo Backpack",List.of()).get("completeStorage").equals(false);
+        assert MenuParser.parse("Crop Diagnostics",List.of(new MenuParser.ItemView(20,null,"Growth",List.of("Next Stage: 1h 40m 20s"),Map.of()))).get("greenhouseNextStageSecondsAtObservation").equals(6020L);
+        assert !MenuParser.parse("Crop Diagnostics",List.of(new MenuParser.ItemView(19,null,"Growth",List.of("Next Stage: 1h 40m 20s"),Map.of()))).containsKey("greenhouseNextStageSecondsAtObservation");
+        System.out.println("MenuParser: duration, profile binding, buffs, menu isolation, Huntaxe slot, bank separation and partial storage checks passed");
+    }
+}

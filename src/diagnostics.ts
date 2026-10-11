@@ -2,7 +2,7 @@ import { appendFileSync, chmodSync, lstatSync, mkdirSync, readFileSync, readdirS
 import { dirname, basename, join } from 'node:path';
 import { AppError, at, number, SECTIONS, type JsonObject } from './types.js';
 
-const tools = ['skyblock_profile_context','skyblock_profile_section','skyblock_market_quote','skyblock_auction_quote'];
+const tools = ['skyblock_profile_context','skyblock_profile_section','skyblock_market_quote','skyblock_auction_quote','skyblock_client_context'];
 const endpoints = ['identity','profiles','skills','items','rank','garden','bazaar','auctions'];
 const codes = new Set(['AUCTION_DECODE_FAILED','AUCTION_SCAN_TIMEOUT','AUCTION_SNAPSHOT_EXPIRED','INVALID_AUCTION_QUERY','UPSTREAM_TIMEOUT','UPSTREAM_INVALID','INTERNAL_ERROR','RESPONSE_TOO_LARGE','SNAPSHOT_EXPIRED','DEMO_PLAYER_ONLY','INVENTORY_INVALID','INVALID_MARKET_QUERY','MARKET_ITEM_NOT_FOUND','MARKET_SNAPSHOT_EXPIRED','INVALID_PAGE','INVALID_PROFILE','INVALID_SECTION','NO_SKYBLOCK_PROFILES','PROFILE_REQUIRED','PROFILE_AMBIGUOUS','PROFILE_NOT_FOUND','HYPIXEL_AUTH_FAILED','HYPIXEL_KEY_EXPIRED','HYPIXEL_KEY_REQUIRED','INVALID_AUCTION_PAGE','INVALID_CONFIG','INVALID_PLAYER','PLAYER_NOT_FOUND','RATE_LIMITED','UPSTREAM_REJECTED','UPSTREAM_TOO_LARGE','UPSTREAM_UNAVAILABLE']);
 const count = (v: unknown) => { const n=number(v); return n===null ? null : Math.max(0,Math.min(1e9,Math.round(n))); };

@@ -5,9 +5,11 @@ import { uuidValue, validatePlayer } from './upstream.js';
 import { gardenSection } from './garden.js';
 import { MarketService } from './market.js';
 import { AuctionService, type AuctionFilters } from './auctions.js';
+import { ClientObservations, type ClientSection } from './client-observations.js';
 
 export class ProfileService {
-  constructor(private readonly upstream: Upstream, private readonly cache: RequestCache, private readonly now = Date.now) {}
+  constructor(private readonly upstream: Upstream, private readonly cache: RequestCache, private readonly now = Date.now, private readonly client = new ClientObservations()) {}
+  clientContext(player:string,profile?:string,section?:ClientSection) { return this.client.query(player,profile,section); }
   marketQuote(item: string, quantity?: number) { return new MarketService(this.upstream, this.cache, this.now).quote(item, quantity); }
   auctionQuote(item: string, filters?: AuctionFilters) { return new AuctionService(this.upstream,this.cache,this.now).quote(item,filters); }
   async query(player: string, requestedProfile?: string, requestedSection?: SectionName, page: { offset?: number; limit?: number } = {}): Promise<JsonObject> {
@@ -71,6 +73,7 @@ export class ProfileService {
     if (requestedSection) {
       const original = requestedSection === 'garden' ? garden : selected!.sections[requestedSection];
       const data = { ...original.data };
+      if (['stats','currencies','equipment','minions','garden'].includes(requestedSection)) data.clientObservations=await this.client.query(uuid,selected!.name,requestedSection as ClientSection);
       const pagination: JsonObject = {};
       for (const [key, value] of Object.entries(data)) {
         if (key === 'storageWarnings') continue;
@@ -94,6 +97,7 @@ export class ProfileService {
       return { metadata, player: identity.value, profile, availableProfiles, section: requestedSection, result: { ...original, data }, pagination };
     }
     const summary: JsonObject = {};
+    summary.clientObservations=await this.client.query(uuid,selected!.name);
     for (const name of ['stats', 'skills', 'currencies', 'slayers', 'dungeons'] as const) summary[name] = selected!.sections[name];
     const stats=selected!.sections.stats, activeEffects=stats.data.activePotionEffects as JsonObject[]|null, pausedEffects=stats.data.pausedPotionEffects as JsonObject[]|null;
     summary.stats={...stats,data:{...stats.data,activePotionEffects:activeEffects?.slice(0,10)??null,pausedPotionEffects:pausedEffects?.slice(0,10)??null,potionEffectsInOverview:{limit:10,activeTruncated:(activeEffects?.length??0)>10,pausedTruncated:(pausedEffects?.length??0)>10}}};

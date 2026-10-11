@@ -23,3 +23,6 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
+      - run: python -m unittest discover -s test -p "*_test.py"
+      - run: javac -d client-mod/build/parser-test client-mod/src/main/java/dev/blockcontext/client/MenuParser.java client-mod/src/test/java/dev/blockcontext/client/MenuParserTest.java
+      - run: java -ea -classpath client-mod/build/parser-test dev.blockcontext.client.MenuParserTest

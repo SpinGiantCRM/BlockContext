@@ -18,10 +18,13 @@ npm run start:demo
 
 This starts a **synthetic demo** at `http://127.0.0.1:3008/mcp`; it does not contact Hypixel. Copy `.env.example` to your own private `.env`, set live mode and your own key, then use `npm start`. Never paste the key into a chat, client URL or public repository. Follow Hypixel's application policies for ongoing access; development keys expire.
 
+See the optional [passive client collector](docs/CLIENT-COLLECTOR.md) for data you manually view in game that the API does not expose. It runs locally without an API key; a separate bridge can sync to your own server.
+
 ## Tools
 
 - `skyblock_profile_context`: compact overview, effective skills/caps, currencies, gear, magical power and Garden coverage.
 - `skyblock_profile_section`: detailed stats, skills, currencies, slayers, dungeons, pets, collections, minions, equipment, accessories or Garden. Equipment includes backpacks labelled by container and modern armor/equipment wardrobe sets. Currencies distinguish personal from shared bank balances; fieldCoverage explains missing or unreadable data. Pets have calculated levels and progress to their species cap (including level-200 dragons); Dungeons include effective Catacombs/class levels and the next normal-floor level gate. Garden includes player-specific discovered/analyzed Greenhouse mutations.
+- `skyblock_client_context`: latest owner-only client observations of viewed Huntaxe/storage menus, displayed balances and cookie/God Potion timers, with independent timestamps and partial coverage. Works without a Hypixel API request when configured.
 - `skyblock_market_quote`: Bazaar instant-buy/sell depth for an exact item ID and quantity, plus official NPC sell value.
 - `skyblock_auction_quote`: active BIN asking prices for an exact item ID, optionally filtered by rarity, reforge, stars, pet type, exact pet level or exact ability scroll set. Listings include pet rarity/XP/level/held item/skin and Wither blade scrolls. Checks page and filtered-variant coverage before returning a global lowest price.
 

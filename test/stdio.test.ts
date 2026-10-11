@@ -19,7 +19,7 @@ test('standard stdio transport discovers all tools, returns structured data and 
   const dir=await mkdtemp(join(tmpdir(),'blockcontext-stdio-'));
   const app=await start({BLOCKCONTEXT_TRANSPORT:'stdio',BLOCKCONTEXT_MODE:'demo',BLOCKCONTEXT_DB:join(dir,'cache.sqlite'),BLOCKCONTEXT_LOG_PATH:join(dir,'usage.jsonl')});const pid=app.transport.pid!;
   try {
-    const tools=await app.client.listTools();assert.equal(tools.tools.length,4);assert.ok(tools.tools.every(t=>t.annotations?.readOnlyHint));
+    const tools=await app.client.listTools();assert.equal(tools.tools.length,5);assert.ok(tools.tools.every(t=>t.annotations?.readOnlyHint));
     const result=await app.client.callTool({name:'skyblock_profile_context',arguments:{player:'Z3L0R',profile:'Strawberry'}});assert.ok(!result.isError);assert.equal(at(result.structuredContent,'metadata','source'),'synthetic_demo');
     const auction=await app.client.callTool({name:'skyblock_auction_quote',arguments:{item:'SWORD'}});assert.ok(!auction.isError);assert.equal(at(auction.structuredContent,'coverage','status'),'complete');assert.equal(at(auction.structuredContent,'lowestBinCoins'),null);
     assert.ok(!app.errors().includes('Error:'));
@@ -33,6 +33,6 @@ test('stdio loads a private env file by absolute path independently of client wo
   const dir=await mkdtemp(join(tmpdir(),'blockcontext-env-')),path=join(dir,'private.env');
   await writeFile(path,`BLOCKCONTEXT_MODE=demo\nBLOCKCONTEXT_TRANSPORT=stdio\nBLOCKCONTEXT_DB=${join(dir,'cache.sqlite')}\n`,{mode:0o600});await chmod(path,0o600);
   const app=await start({},[`--env-file=${path}`]);
-  try{assert.equal((await app.client.listTools()).tools.length,4);assert.equal(at((await app.client.callTool({name:'skyblock_profile_context',arguments:{player:'Z3L0R',profile:'Strawberry'}})).structuredContent,'metadata','source'),'synthetic_demo');}
+  try{assert.equal((await app.client.listTools()).tools.length,5);assert.equal(at((await app.client.callTool({name:'skyblock_profile_context',arguments:{player:'Z3L0R',profile:'Strawberry'}})).structuredContent,'metadata','source'),'synthetic_demo');}
   finally{await app.client.close();await rm(dir,{recursive:true,force:true});}
 });

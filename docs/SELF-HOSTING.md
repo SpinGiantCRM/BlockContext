@@ -57,9 +57,13 @@ ChatGPT can optionally use [OpenAI Secure MCP Tunnels](https://developers.openai
 
 ## Verify the result
 
-Initialize the client and discover four read-only tools. Request a profile overview, then equipment and Garden detail. Verify source `hypixel`, the intended profile, timestamps and coverage. A missing inventory or mutation list is unknown; a demo result does not validate a live key. Request Bazaar and auction quotes separately. Auction initialization/discovery does not trigger a scan; the first quote may take up to 45 seconds. Configure the client tool timeout to at least 60 seconds.
+Initialize the client and discover five read-only tools. Request a profile overview, then equipment and Garden detail. Verify source `hypixel`, the intended profile, timestamps and coverage. A missing inventory or mutation list is unknown; a demo result does not validate a live key. Request Bazaar and auction quotes separately. Auction initialization/discovery does not trigger a scan; the first quote may take up to 45 seconds. Configure the client tool timeout to at least 60 seconds.
 
 Use `npm run check` to run the source archive's offline tests and dependency audit. In HTTP mode, `npm run smoke` checks the actual transport against a running server. It prints normalized player data, so keep its output private.
+
+## Optional client data
+
+The [client collector guide](CLIENT-COLLECTOR.md) covers the supported Fabric version, passive recording boundaries, local stdio integration and optional SSH syncing to your own server. Configure `BLOCKCONTEXT_CLIENT_SNAPSHOT_PATH` only for a private owner snapshot. `skyblock_client_context` does not depend on live Hypixel access; unknown observations remain unknown.
 
 ## Maintenance
 
