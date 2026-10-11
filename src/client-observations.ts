@@ -1,6 +1,21 @@
 import { open, constants } from 'node:fs/promises';
 import { z } from 'zod';
 import { AppError, SECTIONS, type JsonObject } from './types.js';
+import {mapGameFields} from './factual-fields.js';
+import {petProgress} from './progression.js';
+
+function normalizedClientItem(i:JsonObject):JsonObject {
+ const fields=(i.structuredAttributes as {fields?:JsonObject[]}|undefined)?.fields??[];
+ const attributes=Object.fromEntries(fields.map(f=>[String(f.path),f.value]));
+ const pet=i.id==='PET'?{
+  type:attributes['petInfo.type']??null,tier:attributes['petInfo.tier']??null,experience:attributes['petInfo.exp']??null,
+  heldItem:attributes['petInfo.heldItem']??null,candiesUsed:attributes['petInfo.candyUsed']??null,skin:attributes['petInfo.skin']??null,
+  progression:petProgress(attributes['petInfo.type'],attributes['petInfo.tier'],attributes['petInfo.exp'])
+ }:undefined;
+ return {...i,name:i.displayName??null,rarityUpgrade:i.rarity_upgrades??null,dungeonUpgradeLevel:i.upgrade_level??i.dungeon_item_level??null,
+  soulbound:typeof attributes.soulbound==='boolean'?attributes.soulbound:typeof attributes.donated_museum==='boolean'?attributes.donated_museum:null,
+  upgrades:Object.fromEntries(Object.entries(i).filter(([k,v])=>typeof v==='number'&&!['slot','count'].includes(k))),...(pet?{pet}:{})};
+}
 
 const identifier=z.string().regex(/^[A-Z0-9_:.-]{1,96}$/);
 const display=z.string().regex(/^[A-Za-z0-9 '():+./%✪★-]{1,96}$/);
@@ -51,7 +66,7 @@ export class ClientObservations {
     else if(matches.length>1)matches=matches.filter(p=>`${p.uuid}:${p.profileName.toLowerCase()}`===raw.activeProfile);
     if(matches.length>1)throw new AppError('PROFILE_REQUIRED','Choose an exact profile name from your collected game data.');
     if(matches.length!==1)return unavailable('no_matching_player_and_profile');
-    const p=matches[0]!,out:JsonObject={},unavailableObservations:JsonObject={},pagination:JsonObject={};
+    const p=matches[0]!,out:JsonObject={},unavailableObservations:JsonObject={},pagination:JsonObject={},fieldInputs:JsonObject={};
     const connected=raw.activeProfile===`${p.uuid}:${p.profileName.toLowerCase()}`&&now-raw.exportedAt<=maxAge*1000;
     if(options.live&&!connected)return {...unavailable('collector_not_connected_or_export_too_old'),mode:'live',apiRequests:0,exportedAt:new Date(raw.exportedAt).toISOString()};
     for(const [key,record] of Object.entries(p.observations)) {
@@ -69,13 +84,24 @@ export class ClientObservations {
       const current=connected&&age<=maxAge*1000&&(raw.observedNow?.includes(key)??(key==='inventory'));
       if(options.live&&!current){unavailableObservations[key]={reasonCode:'not_currently_observed_or_too_old',ageSeconds:Math.floor(age/1000),readFrom:record.readFrom};continue;}
       const values={...(parsed as JsonObject)};
+      if(Array.isArray(values.items))values.items=(values.items as JsonObject[]).map(i=>({...normalizedClientItem(i),location:key==='inventory'?'inventory':key,equippedState:key==='inventory'?Number(i.slot)>=36&&Number(i.slot)<=39?'minecraft_armor_slot':Number(i.slot)===40?'minecraft_offhand':'carried':null}));
+      if(values.weapon)values.weapon=normalizedClientItem(values.weapon as JsonObject);
+      fieldInputs[key]={...values};
       for(const name of ['items','facts'])if(Array.isArray(values[name])){const all=values[name] as unknown[];values[name]=all.slice(offset,offset+limit);pagination[key+'.'+name]={offset,limit,total:all.length,returned:(values[name] as unknown[]).length,hasMore:offset+limit<all.length};}
-      if(Array.isArray(values.items))values.items=(values.items as JsonObject[]).map(i=>({...i,name:i.displayName??null,location:key==='inventory'?'inventory':key,equippedState:key==='inventory'?Number(i.slot)>=36&&Number(i.slot)<=39?'minecraft_armor_slot':Number(i.slot)===40?'minecraft_offhand':'carried':null,rarityUpgrade:i.rarity_upgrades??null,dungeonUpgradeLevel:i.upgrade_level??i.dungeon_item_level??null,upgrades:Object.fromEntries(Object.entries(i).filter(([k,v])=>typeof v==='number'&&!['slot','count'].includes(k)))}));
-      if(values.weapon)values.weapon={...(values.weapon as JsonObject),name:(values.weapon as JsonObject).displayName??null,rarityUpgrade:(values.weapon as JsonObject).rarity_upgrades??null,dungeonUpgradeLevel:(values.weapon as JsonObject).upgrade_level??(values.weapon as JsonObject).dungeon_item_level??null};
       out[key]={source:'client_observation',status:age>300_000?'stale':'available',observedAt:new Date(record.observedAt).toISOString(),ageSeconds:Math.floor(age/1000),readFrom:record.readFrom,values,coverage:key==='huntaxe'||key.startsWith('bank:')||group==='stats'?'only_the_displayed_field':key==='inventory'?'only_current_player_inventory_slots':'partial_only_viewed_menu',currentStateVerified:current,scope:'member'};
     }
     const mappedFields:JsonObject[]=[];
-    for(const [key,record] of Object.entries(out)){const row=record as JsonObject,values=row.values as JsonObject;for(const [field,value] of Object.entries(values)){if(typeof value==='number'||typeof value==='boolean')mappedFields.push({path:'client.'+key+'.'+field,value,status:'known',scope:'member',observedAt:row.observedAt,currentStateVerified:row.currentStateVerified,canonicalApiPath:key.startsWith('bank:')?(field==='personalBankCoins'?'member.profile.bank_account':field==='sharedProfileBankCoins'?'profile.banking.balance':null):null});}}
-    return {changesSincePreviousObservations:(p.changes??[]).filter(c=>c.observedAt<=now&&now-c.observedAt<86400000),changeCoverage:{maximum:64,source:'passive_owner_observations',persistentHistory:false,removedItemsDoNotProveSale:true},fields:mappedFields,source:'client_observation',status:Object.keys(out).length?'partial':'unavailable',reasonCode:Object.keys(out).length?'owner_visible_observations':'no_valid_recent_observations',player:{uuid:p.uuid,name:p.playerName},profile:{name:p.profileName},mode:options.live?'live':'latest_observations',apiRequests:0,maxAgeSeconds:maxAge,unavailableObservations,pagination,collectorCoverage:{evictedObservations:raw.evictedObservations??0,exportIntervalMs:raw.exportIntervalMs??5000,onlyReceivedVisibleState:true,completeProfile:false},collectorVersion:raw.collectorVersion,exportedAt:new Date(raw.exportedAt).toISOString(),connectedAtLastExport:raw.activeProfile===`${p.uuid}:${p.profileName.toLowerCase()}`&&now-raw.exportedAt<45000,observations:out,warnings:['Owner-only client observations; they are not Hypixel API responses or independently verified values.','Timers are remaining time when observed, not a live countdown. Gameplay can pause effects.','Current inventory, owner state, selected item attributes and displayed HUD/tab/sidebar facts are passive. Server-unsent fields still require a viewed menu or remain unknown. Unviewed storage and minions remain unknown. Data expires after 24 hours; each key retains only its latest observation.']};
+    const fieldCoverage:JsonObject={};
+    for(const [key,record] of Object.entries(out)){
+      const row=record as JsonObject,mapped=mapGameFields(fieldInputs[key],'client.'+key,'member',Math.max(0,12000-mappedFields.length));
+      fieldCoverage[key]=mapped.coverage;
+      for(const field of mapped.fields as JsonObject[]){
+        const name=String(field.path).split('.').at(-1);
+        mappedFields.push({...field,source:'client_observation',observedAt:row.observedAt,currentStateVerified:row.currentStateVerified,
+          canonicalApiPath:key.startsWith('bank:')?(name==='personalBankCoins'?'member.profile.bank_account':name==='sharedProfileBankCoins'?'profile.banking.balance':null):null});
+      }
+    }
+    pagination.fields={offset,limit,total:mappedFields.length,returned:mappedFields.slice(offset,offset+limit).length,hasMore:offset+limit<mappedFields.length};
+    return {changesSincePreviousObservations:(p.changes??[]).filter(c=>c.observedAt<=now&&now-c.observedAt<86400000),changeCoverage:{maximum:64,source:'passive_owner_observations',persistentHistory:false,removedItemsDoNotProveSale:true},fields:mappedFields.slice(offset,offset+limit),fieldCoverage,source:'client_observation',status:Object.keys(out).length?'partial':'unavailable',reasonCode:Object.keys(out).length?'owner_visible_observations':'no_valid_recent_observations',player:{uuid:p.uuid,name:p.playerName},profile:{name:p.profileName},mode:options.live?'live':'latest_observations',apiRequests:0,maxAgeSeconds:maxAge,unavailableObservations,pagination,collectorCoverage:{evictedObservations:raw.evictedObservations??0,exportIntervalMs:raw.exportIntervalMs??5000,onlyReceivedVisibleState:true,completeProfile:false},collectorVersion:raw.collectorVersion,exportedAt:new Date(raw.exportedAt).toISOString(),connectedAtLastExport:raw.activeProfile===`${p.uuid}:${p.profileName.toLowerCase()}`&&now-raw.exportedAt<45000,observations:out,warnings:['Owner-only client observations; they are not Hypixel API responses or independently verified values.','Timers are remaining time when observed, not a live countdown. Gameplay can pause effects.','Current inventory, owner state, selected item attributes and displayed HUD/tab/sidebar facts are passive. Server-unsent fields still require a viewed menu or remain unknown. Unviewed storage and minions remain unknown. Data expires after 24 hours; each key retains only its latest observation.']};
   }
 }

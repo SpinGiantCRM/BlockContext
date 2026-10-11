@@ -1,5 +1,5 @@
 import {observedActivities} from './reported-progression.js';
-import {mapGameFields} from './factual-fields.js';
+import {mapGameFields,stampObservedAt} from './factual-fields.js';
 import {dataContract} from './data-contract.js';
 import {decodeInventory} from './inventory.js';
 import { RequestCache } from './cache.js';
@@ -27,6 +27,7 @@ export class ProfileService {
     let raw:unknown=snapshot.value.data;
     if(kind==='items'&&itemId)raw=Array.isArray(snapshot.value.data.items)?snapshot.value.data.items.find(v=>(v as JsonObject).id===itemId):null;
     const mapped=mapGameFields(raw,'reference.'+kind,'public_resource',50000),fields=mapped.fields as JsonObject[];
+    stampObservedAt(mapped,snapshot.value.retrievedAt);
     return {source:this.upstream.source,kind,retrievedAt:new Date(snapshot.value.retrievedAt).toISOString(),cache:snapshot.cache,upstreamLastUpdated:snapshot.value.data.lastUpdated??null,fields:fields.slice(offset,offset+limit),coverage:mapped.coverage,pagination:{offset,limit,total:fields.length,returned:fields.slice(offset,offset+limit).length,hasMore:offset+limit<fields.length},priceBasis:kind==='ended_auctions'?'reported_recent_completed_sales':null};
   }
   marketQuote(item: string, quantity?: number) { return new MarketService(this.upstream, this.cache, this.now).quote(item, quantity); }
@@ -60,8 +61,7 @@ export class ProfileService {
       const profiles: NormalizedProfile[] = [];
       for (const profile of raw) {
         const normalized=await normalizeProfile(profile, uuid, catalog, itemsCatalog, playerMetadata,collectionsCatalog);
-        const stamp=(value:unknown):void=>{if(value===null||typeof value!=='object')return;for(const [key,child] of Object.entries(value)){if(key==='observedAt'&&child==='see_response_metadata.retrievedAt')(value as JsonObject)[key]=new Date(retrievedAt).toISOString();else stamp(child);}};
-        stamp(normalized);profiles.push(normalized);
+        stampObservedAt(normalized,retrievedAt);profiles.push(normalized);
       }
       return { profiles, retrievedAt };
     }, snapshot => snapshot.retrievedAt,page.mode==='cached'?'cached':'snapshot');
@@ -88,7 +88,7 @@ export class ProfileService {
       try {
         const snapshot = await this.cache.snapshot(`${cacheNamespace}:garden:${selected!.id}`, 300_000, 1800_000, async () => {
           const raw = await this.upstream.garden(selected!.id), retrievedAt = this.now();
-          const section=gardenSection(raw);section.data.apiFields=mapGameFields(raw,'garden','shared_profile');return { section, retrievedAt };
+          const section=gardenSection(raw);section.data.apiFields=mapGameFields(raw,'garden','shared_profile');stampObservedAt(section,retrievedAt);return { section, retrievedAt };
         }, value => value.retrievedAt,page.mode==='cached'?'cached':'snapshot');
         garden = { ...snapshot.value.section, data: { ...snapshot.value.section.data, snapshot: { retrievedAt: new Date(snapshot.value.retrievedAt).toISOString(), ageSeconds: Math.max(0, Math.floor((this.now()-snapshot.value.retrievedAt)/1000)), cache: snapshot.cache, stale: snapshot.cache === 'stale', profileRetrievedAt: metadata.retrievedAt } }, warnings: [...snapshot.value.section.warnings, ...(snapshot.warning ? [snapshot.warning] : [])] };
       } catch (error) {
@@ -108,13 +108,17 @@ export class ProfileService {
           return {data:await this.upstream.supplement(kind,uuid,selected!.id),retrievedAt:this.now()};
         },v=>v.retrievedAt,page.mode==='cached'?'cached':'snapshot');
         const mapped=mapGameFields(extra.value.data,'supplement.'+kind,requestedSection==='museum'?'member':'member_profile');
+        stampObservedAt(mapped,extra.value.retrievedAt);
         const holdings:JsonObject[]=[];
         const visit=async(v:unknown,path:string,depth:number):Promise<void>=>{if(depth>12||holdings.length>=64)return;if(typeof (v as JsonObject)?.item_bytes==='string'){try{holdings.push({location:path,items:await decodeInventory({data:(v as JsonObject).item_bytes})});}catch{holdings.push({location:path,items:null,reasonCode:'decode_failed'});}return;}if(typeof (v as JsonObject)?.data==='string'){try{holdings.push({location:path,items:await decodeInventory(v)});}catch{holdings.push({location:path,items:null,reasonCode:'decode_failed'});}return;}if(v&&typeof v==='object')for(const [key,x] of Object.entries(v))await visit(x,path+'.'+key,depth+1);};
         await visit(extra.value.data,'supplement.'+kind,0);
         selected!.sections[requestedSection]={status:'partial',data:{...selected!.sections[requestedSection].data,supplement:{...mapped,retrievedAt:new Date(extra.value.retrievedAt).toISOString(),cache:extra.cache},holdings},warnings:['Supplemental endpoint scoped to this member/profile; prices, escrow totals and unexposed locations remain unknown.']};
       }catch{selected!.sections[requestedSection].warnings.push('Supplemental endpoint unavailable; no empty Museum or zero escrow is inferred.');}
     }
-    if(requestedSection==='data_contract')selected!.sections.data_contract=dataContract(selected!.sections,await this.client.query(uuid,selected!.name));
+    if(requestedSection==='data_contract'){
+      selected!.sections.data_contract=dataContract(selected!.sections,await this.client.query(uuid,selected!.name));
+      stampObservedAt(selected!.sections.data_contract,result.value.retrievedAt);
+    }
     if (requestedSection) {
       const original = requestedSection === 'garden' ? garden : selected!.sections[requestedSection];
       const data = { ...original.data };

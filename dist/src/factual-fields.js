@@ -8,6 +8,23 @@ export const DOMAIN_ROOTS = {
 };
 const privateKey = /(?:^|_)(?:private|uuid|uniqueid|player_id|player_uuid|email|ip|token|secret|password|session|sessions|chat|messages|social_media|coop_invitation|deletion_notice|last_login|last_logout|first_login|first_join|participants|teammates|started_by|claimed_by|who_started|initiator|initiator_name|owner|owners|donator|originator)(?:$|_)/i;
 const uuid = /^(?:[a-f0-9]{32}|[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})$/i;
+// Numeric game counters are not credentials. Keep this exception exact so a
+// similarly named text field cannot bypass the private-field filter.
+function privateField(key, value) {
+    if (typeof value === 'number' && Number.isFinite(value) && ['secret_count', 'secrets_found', 'token_count'].includes(key))
+        return false;
+    return privateKey.test(key);
+}
+export function stampObservedAt(value, retrievedAt) {
+    if (value === null || typeof value !== 'object')
+        return;
+    for (const [key, child] of Object.entries(value)) {
+        if (key === 'observedAt' && child === 'see_response_metadata.retrievedAt')
+            value[key] = new Date(retrievedAt).toISOString();
+        else
+            stampObservedAt(child, retrievedAt);
+    }
+}
 export function pathValue(root, path) { return path.split('.').reduce((v, k) => at(v, k), root); }
 export function domainFor(path) {
     const p = path.replace(/^member\./, '');
@@ -39,7 +56,7 @@ export function mapGameFields(value, prefix = 'member', scope = 'member', maxFie
             return;
         }
         const key = path.split('.').at(-1);
-        if (privateKey.test(key) || uuid.test(key) || /^\d{1,3}(?:\.\d{1,3}){3}$/.test(key)) {
+        if (privateField(key, v) || uuid.test(key) || /^\d{1,3}(?:\.\d{1,3}){3}$/.test(key)) {
             omit(path, 'identity_or_non_game_private_field');
             return;
         }
@@ -101,7 +118,7 @@ export function projectOwnGame(value, depth = 0) {
         return uuid.test(value) || value.includes('@') ? null : value;
     if (Array.isArray(value))
         return value.map(v => projectOwnGame(v, depth + 1));
-    return Object.fromEntries(Object.entries(object(value)).filter(([k]) => !privateKey.test(k) && !uuid.test(k) && /^[A-Za-z0-9_: .+-]{1,96}$/.test(k)).map(([k, v]) => [k, projectOwnGame(v, depth + 1)]));
+    return Object.fromEntries(Object.entries(object(value)).filter(([k, v]) => !privateField(k, v) && !uuid.test(k) && /^[A-Za-z0-9_: .+-]{1,96}$/.test(k)).map(([k, v]) => [k, projectOwnGame(v, depth + 1)]));
 }
 export function additionalSections(member, raw, metadata) {
     const mapped = mapGameFields(member), shared = mapGameFields(Object.fromEntries(Object.entries(raw).filter(([k]) => !['members', 'profile_id', 'cute_name', 'selected', 'game_mode'].includes(k))), 'profile', 'shared_profile');

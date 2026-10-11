@@ -1,5 +1,5 @@
 import { observedActivities } from './reported-progression.js';
-import { mapGameFields } from './factual-fields.js';
+import { mapGameFields, stampObservedAt } from './factual-fields.js';
 import { dataContract } from './data-contract.js';
 import { decodeInventory } from './inventory.js';
 import { normalizeProfile } from './normalize.js';
@@ -38,6 +38,7 @@ export class ProfileService {
         if (kind === 'items' && itemId)
             raw = Array.isArray(snapshot.value.data.items) ? snapshot.value.data.items.find(v => v.id === itemId) : null;
         const mapped = mapGameFields(raw, 'reference.' + kind, 'public_resource', 50000), fields = mapped.fields;
+        stampObservedAt(mapped, snapshot.value.retrievedAt);
         return { source: this.upstream.source, kind, retrievedAt: new Date(snapshot.value.retrievedAt).toISOString(), cache: snapshot.cache, upstreamLastUpdated: snapshot.value.data.lastUpdated ?? null, fields: fields.slice(offset, offset + limit), coverage: mapped.coverage, pagination: { offset, limit, total: fields.length, returned: fields.slice(offset, offset + limit).length, hasMore: offset + limit < fields.length }, priceBasis: kind === 'ended_auctions' ? 'reported_recent_completed_sales' : null };
     }
     marketQuote(item, quantity) { return new MarketService(this.upstream, this.cache, this.now).quote(item, quantity); }
@@ -91,14 +92,7 @@ export class ProfileService {
             const profiles = [];
             for (const profile of raw) {
                 const normalized = await normalizeProfile(profile, uuid, catalog, itemsCatalog, playerMetadata, collectionsCatalog);
-                const stamp = (value) => { if (value === null || typeof value !== 'object')
-                    return; for (const [key, child] of Object.entries(value)) {
-                    if (key === 'observedAt' && child === 'see_response_metadata.retrievedAt')
-                        value[key] = new Date(retrievedAt).toISOString();
-                    else
-                        stamp(child);
-                } };
-                stamp(normalized);
+                stampObservedAt(normalized, retrievedAt);
                 profiles.push(normalized);
             }
             return { profiles, retrievedAt };
@@ -134,6 +128,7 @@ export class ProfileService {
                     const raw = await this.upstream.garden(selected.id), retrievedAt = this.now();
                     const section = gardenSection(raw);
                     section.data.apiFields = mapGameFields(raw, 'garden', 'shared_profile');
+                    stampObservedAt(section, retrievedAt);
                     return { section, retrievedAt };
                 }, value => value.retrievedAt, page.mode === 'cached' ? 'cached' : 'snapshot');
                 garden = { ...snapshot.value.section, data: { ...snapshot.value.section.data, snapshot: { retrievedAt: new Date(snapshot.value.retrievedAt).toISOString(), ageSeconds: Math.max(0, Math.floor((this.now() - snapshot.value.retrievedAt) / 1000)), cache: snapshot.cache, stale: snapshot.cache === 'stale', profileRetrievedAt: metadata.retrievedAt } }, warnings: [...snapshot.value.section.warnings, ...(snapshot.warning ? [snapshot.warning] : [])] };
@@ -156,6 +151,7 @@ export class ProfileService {
                     return { data: await this.upstream.supplement(kind, uuid, selected.id), retrievedAt: this.now() };
                 }, v => v.retrievedAt, page.mode === 'cached' ? 'cached' : 'snapshot');
                 const mapped = mapGameFields(extra.value.data, 'supplement.' + kind, requestedSection === 'museum' ? 'member' : 'member_profile');
+                stampObservedAt(mapped, extra.value.retrievedAt);
                 const holdings = [];
                 const visit = async (v, path, depth) => { if (depth > 12 || holdings.length >= 64)
                     return; if (typeof v?.item_bytes === 'string') {
@@ -184,8 +180,10 @@ export class ProfileService {
                 selected.sections[requestedSection].warnings.push('Supplemental endpoint unavailable; no empty Museum or zero escrow is inferred.');
             }
         }
-        if (requestedSection === 'data_contract')
+        if (requestedSection === 'data_contract') {
             selected.sections.data_contract = dataContract(selected.sections, await this.client.query(uuid, selected.name));
+            stampObservedAt(selected.sections.data_contract, result.value.retrievedAt);
+        }
         if (requestedSection) {
             const original = requestedSection === 'garden' ? garden : selected.sections[requestedSection];
             const data = { ...original.data };

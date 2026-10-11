@@ -9,6 +9,19 @@ export const DOMAIN_ROOTS:Record<string,string[]>= {
 };
 const privateKey=/(?:^|_)(?:private|uuid|uniqueid|player_id|player_uuid|email|ip|token|secret|password|session|sessions|chat|messages|social_media|coop_invitation|deletion_notice|last_login|last_logout|first_login|first_join|participants|teammates|started_by|claimed_by|who_started|initiator|initiator_name|owner|owners|donator|originator)(?:$|_)/i;
 const uuid=/^(?:[a-f0-9]{32}|[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})$/i;
+// Numeric game counters are not credentials. Keep this exception exact so a
+// similarly named text field cannot bypass the private-field filter.
+function privateField(key:string,value:unknown):boolean {
+ if(typeof value==='number'&&Number.isFinite(value)&&['secret_count','secrets_found','token_count'].includes(key))return false;
+ return privateKey.test(key);
+}
+export function stampObservedAt(value:unknown,retrievedAt:number):void {
+ if(value===null||typeof value!=='object')return;
+ for(const [key,child] of Object.entries(value)) {
+  if(key==='observedAt'&&child==='see_response_metadata.retrievedAt')(value as JsonObject)[key]=new Date(retrievedAt).toISOString();
+  else stampObservedAt(child,retrievedAt);
+ }
+}
 export function pathValue(root:unknown,path:string):unknown {return path.split('.').reduce<unknown>((v,k)=>at(v,k),root);}
 export function domainFor(path:string):string {
  const p=path.replace(/^member\./,'');
@@ -29,7 +42,7 @@ export function mapGameFields(value:unknown,prefix='member',scope='member',maxFi
  const visit=(v:unknown,path:string,depth:number):void=>{
   if(++nodes>100000||depth>20){truncated=true;omit(path,'projection_budget');return;}
   const key=path.split('.').at(-1)!;
-  if(privateKey.test(key)||uuid.test(key)||/^\d{1,3}(?:\.\d{1,3}){3}$/.test(key)){omit(path,'identity_or_non_game_private_field');return;}
+  if(privateField(key,v)||uuid.test(key)||/^\d{1,3}(?:\.\d{1,3}){3}$/.test(key)){omit(path,'identity_or_non_game_private_field');return;}
   if(v!==null&&typeof v==='object'&&!Array.isArray(v)&&typeof at(v,'data')==='string'&&/^[A-Za-z0-9+/]+=*$/.test(String(at(v,'data')))) {
    if(fields.length>=maxFields){truncated=true;return;} leaves++;fields.push({path,status:'partial',value:null,valueType:'encoded_inventory',domain:domainFor(path),scope,unit:null,observedAt:'see_response_metadata.retrievedAt',gameUpdatedAt:null,meaning:'Encoded item container; see storage.items and decoded equipment locations.',reasonCode:'encoded_inventory_not_exported'});return;
   }
@@ -54,7 +67,7 @@ export function projectOwnGame(value:unknown,depth=0):unknown {
  if(value===null||typeof value==='boolean'||typeof value==='number')return typeof value==='number'&&!Number.isFinite(value)?null:value;
  if(typeof value==='string')return uuid.test(value)||value.includes('@')?null:value;
  if(Array.isArray(value))return value.map(v=>projectOwnGame(v,depth+1));
- return Object.fromEntries(Object.entries(object(value)).filter(([k])=>!privateKey.test(k)&&!uuid.test(k)&&/^[A-Za-z0-9_: .+-]{1,96}$/.test(k)).map(([k,v])=>[k,projectOwnGame(v,depth+1)]));
+ return Object.fromEntries(Object.entries(object(value)).filter(([k,v])=>!privateField(k,v)&&!uuid.test(k)&&/^[A-Za-z0-9_: .+-]{1,96}$/.test(k)).map(([k,v])=>[k,projectOwnGame(v,depth+1)]));
 }
 export function additionalSections(member:JsonObject,raw:JsonObject,metadata:JsonObject):Record<string,Section> {
  const mapped=mapGameFields(member),shared=mapGameFields(Object.fromEntries(Object.entries(raw).filter(([k])=>!['members','profile_id','cute_name','selected','game_mode'].includes(k))),'profile','shared_profile');
