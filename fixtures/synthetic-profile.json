@@ -1,5 +1,5 @@
 {
-  "fixtureNotice": "Invented values for local tests only. These are NOT Z3L0R's real SkyBlock stats.",
+  "fixtureNotice": "Invented values for local tests only. These are NOT DemoPlayer's real SkyBlock stats.",
   "profiles": [
     {
       "profile_id": "11111111111111111111111111111111",
@@ -7,7 +7,7 @@
       "selected": true,
       "banking": { "balance": 2500000 },
       "members": {
-        "ab8fd9cdc4fa4f4e8571c5aa1e07e614": {
+        "0123456789abcdef0123456789abcdef": {
           "leveling": { "experience": 12345 },
           "player_data": { "experience": { "SKILL_COMBAT": 400, "SKILL_MINING": 200, "SKILL_FARMING": 0, "SKILL_HUNTING": 60 } },
           "currencies": { "coin_purse": 125000 },
@@ -25,7 +25,7 @@
       "cute_name": "Apple",
       "selected": false,
       "game_mode": "ironman",
-      "members": { "ab8fd9cdc4fa4f4e8571c5aa1e07e614": { "leveling": { "experience": 100 }, "currencies": { "coin_purse": 0 } } }
+      "members": { "0123456789abcdef0123456789abcdef": { "leveling": { "experience": 100 }, "currencies": { "coin_purse": 0 } } }
     }
   ]
 }

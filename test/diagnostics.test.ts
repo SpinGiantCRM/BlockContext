@@ -18,13 +18,13 @@ test('real HTTP MCP calls record useful measurements without request or result i
  const port=(server.address() as {port:number}).port,client=new Client({name:'secret-client-name',version:'1'});
  try {
   await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`)));
-  await client.callTool({name:'skyblock_profile_section',arguments:{player:'Z3L0R',profile:'Strawberry',section:'equipment'}});
-  await client.callTool({name:'skyblock_profile_section',arguments:{player:'Z3L0R',profile:'Strawberry',section:'equipment'}});
+  await client.callTool({name:'skyblock_profile_section',arguments:{player:'DemoPlayer',profile:'Strawberry',section:'equipment'}});
+  await client.callTool({name:'skyblock_profile_section',arguments:{player:'DemoPlayer',profile:'Strawberry',section:'equipment'}});
   await client.callTool({name:'skyblock_profile_context',arguments:{player:'secret-player'}});
   const text=readFileSync(path,'utf8'),rows=text.trim().split('\n').map(s=>JSON.parse(s)),tools=rows.filter(r=>r.event==='tool');
   assert.equal(tools.length,3);assert.equal(tools[0].section,'equipment');assert.equal(tools[1].cache,'fresh');assert.ok(tools[0].responseBytes>0);assert.equal(tools[2].outcome,'error');
   assert.ok(rows.some(r=>r.event==='http' && r.httpStatus===200));
-  for(const secret of ['Z3L0R','Strawberry','secret-player','secret-client-name','uuid','inventory','API-Key']) assert.ok(!text.includes(secret),secret);
+  for(const secret of ['DemoPlayer','Strawberry','secret-player','secret-client-name','uuid','inventory','API-Key']) assert.ok(!text.includes(secret),secret);
   if(process.platform!=='win32') assert.equal(statSync(path).mode&0o777,0o600);
  }finally{await client.close();await new Promise<void>(r=>server.close(()=>r()));cache.close();rmSync(dir,{recursive:true,force:true});}
 });

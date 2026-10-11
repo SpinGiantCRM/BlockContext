@@ -63,13 +63,13 @@ test('Ender Chest and sack follow-ups paginate from one snapshot; missing vault 
   const cache = new RequestCache();
   try {
     const service = new ProfileService(upstream, cache);
-    const first = await service.query('Z3L0R', 'Strawberry', 'equipment', { limit: 1 });
+    const first = await service.query('DemoPlayer', 'Strawberry', 'equipment', { limit: 1 });
     assert.equal(at(first, 'pagination', 'enderChestItems', 'total'), 2);
     assert.equal(at(first, 'pagination', 'enderChestItems', 'hasMore'), true);
     assert.deepEqual(at(first, 'result', 'data', 'sackCounts'), { WHEAT: 0 });
     assert.equal(at(first, 'result', 'data', 'personalVaultItems'), null);
     assert.equal(at(first, 'result', 'data', 'storageCoverage', 'personalVaultItems'), 'unavailable');
-    const second = await service.query('Z3L0R', 'Strawberry', 'equipment', { offset: 1, limit: 1 });
+    const second = await service.query('DemoPlayer', 'Strawberry', 'equipment', { offset: 1, limit: 1 });
     assert.equal((at(second, 'result', 'data', 'enderChestItems') as {id:string}[])[0]!.id, 'DIAMOND');
     assert.deepEqual(at(second, 'result', 'data', 'sackCounts'), { DIAMOND: 12 });
     assert.deepEqual(at(first, 'result', 'data', 'storageWarnings'), at(second, 'result', 'data', 'storageWarnings'));
@@ -78,13 +78,13 @@ test('Ender Chest and sack follow-ups paginate from one snapshot; missing vault 
   } finally { cache.close(); }
 });
 
-test('public item catalog requests omit credentials and discard skins and arbitrary fields', async () => {
+test('public item catalog requests omit credentials and retain official item definition fields', async () => {
   const upstream = new HypixelUpstream('test-secret', async (input,init) => {
     assert.equal(String(input), 'https://api.hypixel.net/v2/resources/skyblock/items');
     assert.equal(new Headers(init?.headers).get('API-Key'), null);
     return new Response(JSON.stringify({ success: true, lastUpdated: 10, items: [{ id: 'TEST_RING', name: 'Test Ring', category: 'ACCESSORY', tier: 'RARE', skin: { value: 'not needed' }, description: 'not needed' }] }));
   });
-  assert.deepEqual(await upstream.itemCatalog(), { lastUpdated: 10, items: { TEST_RING: { name: 'Test Ring', category: 'ACCESSORY', tier: 'RARE', npcSellPrice: null } } });
+  assert.deepEqual(await upstream.itemCatalog(), { lastUpdated: 10, items: { TEST_RING: { id:'TEST_RING',name: 'Test Ring', category: 'ACCESSORY', tier: 'RARE', skin:{value:'not needed'},description:'not needed',npcSellPrice: null } } });
 });
 
 test('configured key expiry must specify its timezone', () => {

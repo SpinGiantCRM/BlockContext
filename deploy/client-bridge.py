@@ -23,6 +23,10 @@ def main():
     if not stat.S_ISREG(info.st_mode) or (os.name!='nt' and info.st_mode & 0o077): raise ValueError('private SSH identity required')
     # Explicit identity/destination and default known-hosts file; ignore unrelated proxy configuration.
     command=['ssh','-F',os.devnull,'-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=10','-o','ServerAliveInterval=5','-o','ServerAliveCountMax=2','-i',str(identity),host,'sudo /usr/local/bin/blockcontext-import-client-snapshot']
+    control=Path(os.environ.get('XDG_RUNTIME_DIR', '/tmp'))/('blockcontext-ssh-'+str(os.getuid()))
+    control.mkdir(mode=0o700,exist_ok=True)
+    if control.is_symlink() or control.stat().st_uid!=os.getuid() or control.stat().st_mode & 0o077: raise ValueError('private SSH control directory required')
+    command[1:1]=['-o','ControlMaster=auto','-o','ControlPersist=60','-o','ControlPath='+str(control/'bridge')]
     previous=None;last_status=None
     while True:
         try:
@@ -35,6 +39,6 @@ def main():
         except FileNotFoundError: status='waiting_for_snapshot'
         except (ValueError,TypeError,KeyError,OSError,subprocess.TimeoutExpired,json.JSONDecodeError): status='snapshot_or_upload_unavailable'
         if status!=last_status: print('BlockContext client bridge: '+status,flush=True);last_status=status
-        time.sleep(15)
+        time.sleep(2)
 
 if __name__=='__main__': main()

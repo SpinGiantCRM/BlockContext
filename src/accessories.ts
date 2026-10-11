@@ -6,7 +6,7 @@ export function describeItems(items: Item[] | null, catalog: JsonObject): JsonOb
   return items?.map(item => {
     const definition = object(at(catalog, 'items', item.id ?? ''));
     const category = text(definition.category);
-    return { ...item, category: category ?? item.loreCategory, categorySource: category !== null ? 'hypixel_item_catalog' : item.loreCategory !== null ? 'inventory_footer' : null, catalogTier: text(definition.tier), raritySource: item.rarity === null ? null : 'inventory_footer' };
+    return { ...item, category: category ?? item.loreCategory, categorySource: category !== null ? 'hypixel_item_catalog' : item.loreCategory !== null ? 'inventory_footer' : null, catalogTier: text(definition.tier), officialDefinition:Object.keys(definition).length?definition:null,requirements:definition.requirements??null,baseStats:definition.stats??null,npcSellPrice:definition.npcSellPrice??null,canAuction:typeof definition.can_auction==='boolean'?definition.can_auction:null,canTrade:typeof definition.can_trade==='boolean'?definition.can_trade:null, raritySource: item.rarity === null ? null : 'inventory_footer' };
   }) ?? null;
 }
 

@@ -1,6 +1,6 @@
 {
   "name": "blockcontext",
-  "version": "0.8.2",
+  "version": "0.9.0",
   "private": true,
   "description": "Player-facing Hypixel SkyBlock context over MCP",
   "type": "module",

@@ -88,12 +88,12 @@ test('Garden uses its own cached retrieval time and failure does not disable pro
   upstream.garden=async()=>{calls++; return {garden_experience:10,resources_collected:{WHEAT:73},unlocked_plots_ids:['a']};};
   try {
     const service=new ProfileService(upstream,cache,()=>now);
-    await service.query('Z3L0R','Strawberry','skills'); assert.equal(calls,0);
-    now+=1000; const first=await service.query('Z3L0R','Strawberry','garden');
+    await service.query('DemoPlayer','Strawberry','skills'); assert.equal(calls,0);
+    now+=1000; const first=await service.query('DemoPlayer','Strawberry','garden');
     assert.notEqual(at(first,'metadata','retrievedAt'),at(first,'result','data','snapshot','retrievedAt'));
-    await service.query('Z3L0R','Strawberry'); assert.equal(calls,1);
+    await service.query('DemoPlayer','Strawberry'); assert.equal(calls,1);
     now+=1_800_001; upstream.garden=async()=>{throw new AppError('HYPIXEL_AUTH_FAILED','Access rejected.');};
-    const context=await service.query('Z3L0R','Strawberry'); assert.equal(at(context,'coverage','garden'),'unavailable'); assert.ok(at(context,'summary','skills'));
+    const context=await service.query('DemoPlayer','Strawberry'); assert.equal(at(context,'coverage','garden'),'unavailable'); assert.ok(at(context,'summary','skills'));
   } finally {cache.close();}
 });
 
@@ -144,8 +144,8 @@ test('new upstream requests enforce identity, minimize rank data and keep public
     if(url.pathname==='/v2/skyblock/garden') {assert.equal(header,'test-secret'); return Response.json({success:true,garden:{uuid:DEMO_UUID,garden_experience:10,unrelated:'discard'}});}
     assert.equal(url.pathname,'/v2/skyblock/bazaar'); assert.equal(header,null); return Response.json({success:true,lastUpdated:100,products:{}});
   });
-  assert.deepEqual(await upstream.playerMetadata(DEMO_UUID),{rank:null,packageRank:null,newPackageRank:'VIP',monthlyPackageRank:null});
-  assert.deepEqual(await upstream.garden(DEMO_UUID),{garden_experience:10}); await upstream.bazaar(); assert.equal(calls,3);
+  assert.deepEqual(await upstream.playerMetadata(DEMO_UUID),{rank:null,packageRank:null,newPackageRank:'VIP',monthlyPackageRank:null,skyblock:{},achievements:{},achievementsOneTime:null});
+  assert.deepEqual(await upstream.garden(DEMO_UUID),{garden_experience:10,unrelated:'discard'}); await upstream.bazaar(); assert.equal(calls,3);
   await assert.rejects(upstream.garden('../bad')); await assert.rejects(upstream.playerMetadata('bad')); assert.equal(calls,3);
   const missing=new HypixelUpstream('test',async()=>new Response('',{status:404})); assert.equal(await missing.garden(DEMO_UUID),null);
   const wrong=new HypixelUpstream('test',async()=>Response.json({success:true,garden:{uuid:'f'.repeat(32),garden_experience:10}})); await assert.rejects(wrong.garden(DEMO_UUID),(e:AppError)=>e.code==='UPSTREAM_INVALID');

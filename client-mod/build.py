@@ -16,7 +16,7 @@ if classes.exists():shutil.rmtree(classes)
 classes.mkdir(parents=True);dependencies.mkdir(parents=True,exist_ok=True)
 with zipfile.ZipFile(fabric) as z:
  for name in z.namelist():
-  if name.startswith('META-INF/jars/') and name.endswith('.jar') and any(x in name for x in ['fabric-lifecycle-events-v1-','fabric-api-base-']):
+  if name.startswith('META-INF/jars/') and name.endswith('.jar') and any(x in name for x in ['fabric-lifecycle-events-v1-','fabric-api-base-','fabric-message-api-v1-']):
    target=dependencies/Path(name).name;target.write_bytes(z.read(name))
 libraries=[p for p in (prism/'libraries').rglob('*.jar') if '/minecraft/' not in str(p) and '/intermediary/' not in str(p) and not p.name.endswith('-sources.jar')]
 libraries=[prism/'libraries/com/mojang/minecraft/26.2/minecraft-26.2-client.jar',*libraries,*dependencies.glob('*.jar')]
@@ -25,7 +25,7 @@ subprocess.run(['javac','-encoding','UTF-8','--release','25','-proc:none','-clas
 test=root/'src/test/java/dev/blockcontext/client/MenuParserTest.java'
 subprocess.run(['javac','-encoding','UTF-8','--release','25','-classpath',str(classes),'-d',str(classes),str(test)],check=True)
 subprocess.run(['java','-ea','-classpath',str(classes),'dev.blockcontext.client.MenuParserTest'],check=True)
-output=build/'BlockContext-Collector-0.2.2-mc26.2.jar'
+output=build/'BlockContext-Collector-0.3.0-mc26.2.jar'
 with zipfile.ZipFile(output,'w',zipfile.ZIP_DEFLATED) as z:
  for base in [classes,root/'src/main/resources']:
   for f in sorted(base.rglob('*')):

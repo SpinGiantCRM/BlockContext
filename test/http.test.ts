@@ -18,27 +18,27 @@ async function setup() {
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   return { base, cache, server, calls: () => profileCalls, close: async () => { server.close(); server.closeAllConnections(); await once(server, 'close'); cache.close(); } };
 }
-test('real MCP client discovers five read-only tools and validates profile, Garden and market results', async () => {
+test('real MCP client discovers seven read-only tools and validates profile, Garden and market results', async () => {
   const app = await setup(); const client = new Client({ name: 'integration-test', version: '1.0.0' });
   try {
     await client.connect(new StreamableHTTPClientTransport(new URL(app.base + '/mcp')));
     const tools = await client.listTools();
-    assert.deepEqual(tools.tools.map(t => t.name).sort(), ['skyblock_auction_quote', 'skyblock_client_context', 'skyblock_market_quote', 'skyblock_profile_context', 'skyblock_profile_section']);
+    assert.deepEqual(tools.tools.map(t => t.name).sort(), ['skyblock_auction_quote', 'skyblock_client_context','skyblock_live_context', 'skyblock_market_quote', 'skyblock_profile_context', 'skyblock_profile_section','skyblock_reference']);
     assert.ok(tools.tools.every(t => t.annotations?.readOnlyHint && t.outputSchema));
     assert.equal(app.calls(), 0, 'initialization and discovery must not fetch player data');
-    const overview = await client.callTool({ name: 'skyblock_profile_context', arguments: { player: 'Z3L0R', profile: 'Strawberry' } });
+    const overview = await client.callTool({ name: 'skyblock_profile_context', arguments: { player: 'DemoPlayer', profile: 'Strawberry' } });
     assert.ok(!overview.isError); assert.equal(at(overview.structuredContent, 'metadata', 'source'), 'synthetic_demo');
-    const detail = await client.callTool({ name: 'skyblock_profile_section', arguments: { player: 'Z3L0R', profile: 'Strawberry', section: 'collections' } });
+    const detail = await client.callTool({ name: 'skyblock_profile_section', arguments: { player: 'DemoPlayer', profile: 'Strawberry', section: 'collections' } });
     assert.ok(!detail.isError); assert.equal(at(detail.structuredContent, 'result', 'data', 'collected', 'WHEAT'), 10000);
     assert.equal(app.calls(), 1);
-    const garden = await client.callTool({ name: 'skyblock_profile_section', arguments: { player: 'Z3L0R', profile: 'Strawberry', section: 'garden' } });
+    const garden = await client.callTool({ name: 'skyblock_profile_section', arguments: { player: 'DemoPlayer', profile: 'Strawberry', section: 'garden' } });
     assert.ok(!garden.isError); assert.equal(at(garden.structuredContent,'result','data','levelProgress','level'),1);
     const market = await client.callTool({ name: 'skyblock_market_quote', arguments: { item: 'WHEAT', quantity: 2 } });
     assert.ok(!market.isError); assert.equal(at(market.structuredContent,'bazaar','instantBuy','totalCoins'),16);
     assert.equal(app.calls(),1);
-    const wrongProfile = await client.callTool({ name: 'skyblock_profile_context', arguments: { player: 'Z3L0R', profile: 'Banana' } });
+    const wrongProfile = await client.callTool({ name: 'skyblock_profile_context', arguments: { player: 'DemoPlayer', profile: 'Banana' } });
     assert.equal(wrongProfile.isError, true); assert.match(JSON.stringify(wrongProfile.content), /PROFILE_NOT_FOUND/);
-    const badSection = await client.callTool({ name: 'skyblock_profile_section', arguments: { player: 'Z3L0R', section: 'history' } });
+    const badSection = await client.callTool({ name: 'skyblock_profile_section', arguments: { player: 'DemoPlayer', section: 'history' } });
     assert.equal(badSection.isError, true);
   } finally { await client.close(); await app.close(); }
 });

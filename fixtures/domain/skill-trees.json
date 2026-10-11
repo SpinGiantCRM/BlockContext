@@ -26,5 +26,124 @@
       150000,
       200000
     ]
-  }
+  },
+  "reportedCounterSemantics": {
+    "source": "https://github.com/SkyCryptWebsite/SkyCrypt-Backend/blob/5252bf610310893598916301753486bc4b13ab7d/src/stats/mining.go",
+    "powderBalance": "mining_core.powder_TYPE is available; powder_TYPE_total is reported total; powder_spent_TYPE is spent"
+  },
+  "treeTokens": {
+    "mining": {
+      "tier": [
+        1,
+        2,
+        2,
+        2,
+        2,
+        2,
+        3,
+        2,
+        2,
+        2
+      ],
+      "core": [
+        1,
+        0,
+        0,
+        0,
+        1,
+        0,
+        1,
+        0,
+        0,
+        2
+      ],
+      "coreId": "core_of_the_mountain",
+      "maxCoreLevel": 10
+    },
+    "foraging": {
+      "tier": [
+        1,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2
+      ],
+      "core": [
+        1,
+        0,
+        0,
+        0,
+        1
+      ],
+      "coreId": "center_of_the_forest",
+      "maxCoreLevel": 5
+    }
+  },
+  "slayerThresholds": {
+    "zombie": [
+      5,
+      15,
+      200,
+      1000,
+      5000,
+      20000,
+      100000,
+      400000,
+      1000000
+    ],
+    "spider": [
+      5,
+      25,
+      200,
+      1000,
+      5000,
+      20000,
+      100000,
+      400000,
+      1000000
+    ],
+    "wolf": [
+      10,
+      30,
+      250,
+      1500,
+      5000,
+      20000,
+      100000,
+      400000,
+      1000000
+    ],
+    "enderman": [
+      10,
+      30,
+      250,
+      1500,
+      5000,
+      20000,
+      100000,
+      400000,
+      1000000
+    ],
+    "blaze": [
+      10,
+      30,
+      250,
+      1500,
+      5000,
+      20000,
+      100000,
+      400000,
+      1000000
+    ],
+    "vampire": [
+      20,
+      75,
+      240,
+      840,
+      2400
+    ]
+  },
+  "counterRulesRevision": "5252bf610310893598916301753486bc4b13ab7d"
 }

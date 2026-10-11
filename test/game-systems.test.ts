@@ -16,12 +16,12 @@ test('modern skill trees use separate cumulative HotM and HotF curves, not ordin
  assert.equal(at(s.mining.data,'heartOfTheMountain','tokensAvailable','status'),'unknown');assert.equal((at(s.mining.data,'heartOfTheMountain','nodes') as {enabled:boolean}[])[0]?.enabled,true);
 });
 test('legacy, capped and invalid tree XP preserve coverage without fabricated node rules',()=>{
- for(const [xp,expected] of [[0,1],[400000,10],[500000,10],[-1,null],[NaN,null]] as const){const s=gameSystems({mining_core:{experience:xp,nodes:{mining_speed:0}},mining:{}},{});assert.equal(at(s.mining.data,'heartOfTheMountain','level','value'),expected);assert.equal(at(s.mining.data,'heartOfTheMountain','nodesCoverage','definitionsAvailable'),false);}
+ for(const [xp,expected] of [[0,1],[400000,10],[500000,10],[-1,null],[NaN,null]] as const){const s=gameSystems({mining_core:{experience:xp,nodes:{mining_speed:0}},mining:{}},{});assert.equal(at(s.mining.data,'heartOfTheMountain','level','value'),expected);assert.equal(at(s.mining.data,'heartOfTheMountain','nodesCoverage','definitionsAvailable'),true);}
  const s=gameSystems({},{});assert.equal(s.mining.status,'unavailable');assert.equal(at(s.mining.data,'heartOfTheMountain','experience','status'),'unknown');
 });
 test('daily evidence is not completion and absent powder, balances and trap counts are not zero',()=>{
  const s=gameSystems({experimentation:{pairings:{claimed:true},charge_track_timestamp:1},mining_core:{powder_mithril:0,powder_spent_mithril:10},shards:{traps:{}}},{});
- assert.equal(at(s.mining.data,'powders','0'),undefined);const powder=(s.mining.data.powders as Record<string,unknown>[])[0]!;assert.equal(at(powder,'reportedPowder','value'),0);assert.equal(at(powder,'available','value'),null);
+ assert.equal(at(s.mining.data,'powders','0'),undefined);const powder=(s.mining.data.powders as Record<string,unknown>[])[0]!;assert.equal(at(powder,'reportedPowder','value'),0);assert.equal(at(powder,'available','value'),0);
  const rows=s.dailies.data.activities as Record<string,unknown>[];assert.equal(rows.find(r=>r.activityId==='experimentation')?.completedToday,null);assert.equal(rows.find(r=>r.activityId==='hotm_bonus_commissions')?.remainingCharges,null);
  assert.equal(at(gameSystems({}, {community_upgrades:{currently_upgrading:{tier:1}}}).quests.data,'communityUpgrades','scope'),'shared_profile');assert.equal(s.hunting.data.attributeLevels,null);assert.equal(at(s.hunting.data,'traps','status'),'known');
 });
@@ -44,5 +44,5 @@ test('Dungeon total entries preserve floor counts and recent runs omit other ide
 });
 test('new factual section lists paginate while unsupported personal-data views are absent',async()=>{
  const up=new DemoUpstream(),original=up.profiles.bind(up);up.profiles=async uuid=>{const p=await original(uuid);const m=(p[0]!.members as Record<string,Record<string,unknown>>)[uuid]!;m.skill_tree={experience:{mining:0},nodes:{mining:Object.fromEntries(Array.from({length:12},(_,i)=>['node_'+i,i]))}};return p;};const cache=new RequestCache(':memory:');
- try{const service=new ProfileService(up,cache);const q=await service.query('Z3L0R','Strawberry','mining',{offset:2,limit:3});assert.equal(at(q,'pagination','heartOfTheMountain.nodes','total'),12);assert.equal((at(q,'result','data','heartOfTheMountain','nodes') as unknown[]).length,3);await assert.rejects(()=>service.query('Z3L0R','Strawberry','goal_plan' as never));assert.equal(at(await service.query('Z3L0R','Strawberry','quests'),'result','data','objectives') instanceof Array,true);}finally{cache.close();}
+ try{const service=new ProfileService(up,cache);const q=await service.query('DemoPlayer','Strawberry','mining',{offset:2,limit:3});assert.equal(at(q,'pagination','heartOfTheMountain.nodes','total'),58);assert.equal((at(q,'result','data','heartOfTheMountain','nodes') as unknown[]).length,3);await assert.rejects(()=>service.query('DemoPlayer','Strawberry','goal_plan' as never));assert.equal(at(await service.query('DemoPlayer','Strawberry','quests'),'result','data','objectives') instanceof Array,true);}finally{cache.close();}
 });

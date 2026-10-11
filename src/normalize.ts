@@ -1,3 +1,7 @@
+import {slayerProgress,bestiaryProgress} from './reported-progression.js';
+import {collectionProgress} from './collection-progress.js';
+import {additionalSections} from './factual-fields.js';
+import {extraStorage} from './storage-ledger.js';
 import { decodeInventory, type Item } from './inventory.js';
 import { AppError, at, number, numericMap, object, text, type JsonObject, type NormalizedProfile, type Section,SECTIONS } from './types.js';
 import { skillSection } from './skills.js';
@@ -27,7 +31,7 @@ async function inventory(member: JsonObject, keys: string[][]): Promise<{ items:
   return { items: null, reasonCode: 'not_exposed', warnings: ['Inventory data not present; it may be disabled or unavailable.'] };
 }
 
-export async function normalizeProfile(raw: JsonObject, uuid: string, catalog: JsonObject, itemsCatalog: JsonObject = {}, playerMetadata: JsonObject = {}): Promise<NormalizedProfile> {
+export async function normalizeProfile(raw: JsonObject, uuid: string, catalog: JsonObject, itemsCatalog: JsonObject = {}, playerMetadata: JsonObject = {}, collectionsCatalog:JsonObject={}): Promise<NormalizedProfile> {
   const id = typeof raw.profile_id === 'string' ? uuidValue(raw.profile_id) : null;
   const memberValue = at(raw, 'members', uuid);
   if (!id || memberValue === undefined || !Object.keys(object(memberValue)).length) throw new AppError('UPSTREAM_INVALID', 'The requested profile or membership is invalid.');
@@ -49,12 +53,12 @@ export async function normalizeProfile(raw: JsonObject, uuid: string, catalog: J
   const moneyCoverage=Object.fromEntries(Object.entries(moneyFields).map(([key,value])=>[key,{status:value!==null&&value>=0?'available':'unavailable',reasonCode:moneyRaw[key as keyof typeof moneyRaw]===undefined?'not_exposed':value===null||value<0?'invalid_api_value':null,source:moneySources[key as keyof typeof moneySources]}]));
   const currencies = section({ ...Object.fromEntries(Object.entries(moneyFields).map(([k,v])=>[k,v!==null&&v>=0?v:null])), fieldCoverage:moneyCoverage,reportedCurrencies:gameEvidence(m.currencies),bits:gameEvidence(at(m,'player_data','bits')),fame:gameEvidence(at(m,'player_data','fame')),copper:number(at(m,'garden_player_data','copper')),committedCoins:null,netWorth:null,valuationReasonCode:'storage_and_variant_valuations_incomplete' }, Object.values(moneyFields).some(v=>v!==null&&v>=0), Object.values(moneyCoverage).some(v=>v.status!=='available')?['Some balances are not exposed or invalid; they remain unknown. Personal and shared profile bank balances are separate. Missing API data alone does not establish whether a privacy setting is disabled.']:[]);
   const bosses = object(at(m, 'slayer', 'slayer_bosses'));
-  const slayers = section({ bosses: Object.fromEntries(Object.entries(bosses).slice(0, 32).map(([k, v]) => [k.slice(0, 64), { experience: number(at(v, 'xp')), killsByTier: numericMap(Object.fromEntries(Object.entries(object(v)).filter(([key]) => key.startsWith('boss_kills_tier_'))), 64) }])) }, at(m, 'slayer', 'slayer_bosses') !== undefined);
+  const slayers = section({bosses:slayerProgress(m),activeQuest:gameEvidence(at(m,'slayer','slayer_quest'))},at(m,'slayer','slayer_bosses')!==undefined);
   const dungeons = dungeonsSection(m,uuid);
   const pets = petsSection(at(m,'pets_data','pets'));
   pets.data.autopetEvidence=gameEvidence(at(m,'pets_data','autopet'));
   pets.data.petSystemEvidence=gameEvidence(Object.fromEntries(Object.entries(object(m.pets_data)).filter(([key])=>key!=='pets')));
-  const collections = section({ collected: numericMap(m.collection) }, m.collection !== undefined);
+  const collections = collectionProgress(m,collectionsCatalog);
   const generators = at(m, 'player_data', 'crafted_generators') ?? m.crafted_generators;
   const minions = section({ craftedGenerators: Array.isArray(generators) ? generators.slice(0, 2048).map(v => text(v)).filter(Boolean) : null, placedMinions: null }, Array.isArray(generators), ['Crafted generators are unlock history, not the currently placed minion setup.']);
   // Limit simultaneous decoding and isolate parser work from the request thread.
@@ -70,7 +74,7 @@ export async function normalizeProfile(raw: JsonObject, uuid: string, catalog: J
   const legacyWardrobe = !invalidLoadout&&at(m,'loadout','armor')===undefined ? await inventory(m, [['wardrobe_contents']]) : null;
   const wardrobe = legacyWardrobe ?? modernArmor;
   const backpack = await backpacks(at(m,'inventory','backpack_contents'));
-  const sacksRaw = at(m, 'inventory', 'sacks_counts');
+  const sacksRaw = at(m, 'inventory', 'sacks_counts')??m.sack_counts;
   const sacksPresent = sacksRaw !== null && typeof sacksRaw === 'object' && !Array.isArray(sacksRaw);
   const sacks = sacksPresent ? numericMap(sacksRaw) : null;
   const storageCoverage = Object.fromEntries([['enderChestItems', enderChest], ['personalVaultItems', vault], ['wardrobeItems', wardrobe]].map(([name,value]) => [name, (value as typeof vault).items === null ? 'unavailable' : 'available']));
@@ -114,7 +118,9 @@ export async function normalizeProfile(raw: JsonObject, uuid: string, catalog: J
     [...accessories.warnings, 'Highest recorded magical power is historical and may differ from the current snapshot calculation. The calculation applies outside Dungeons and uses pinned community rules.',
     ...(power.reasons as string[]), 'Carried accessory lists include only items identified by the catalog or a structured footer. Stored or carried items do not add bag magical power.']);
   const garden = gardenSection(null); garden.data.greenhouse = greenhouse(m);
-  const sections={ stats, skills: skillSection(m, catalog, playerMetadata), currencies, slayers, dungeons, pets, collections, minions, equipment: equipmentSection, accessories: accessorySection, garden,...gameSystems(m,raw) };
-  sections.systems.data.registry=SECTIONS.filter(s=>s!=='systems').map(s=>({id:s,status:sections[s].status,source:'profile_API_or_separately_labeled_client_observations',fullyImplemented:false,coverage:sections[s].data.fieldCoverage??null}));
-  return { id, name: text(raw.cute_name, 32) ?? 'Unnamed', selected: raw.selected === true, gameMode: text(raw.game_mode, 32), sections };
+  const storageLedger=await extraStorage(m,{'inventory.inv_contents':carried.items,'inventory.inv_armor':armor.items,'inventory.equipment_contents':equipment.items,'inventory.ender_chest_contents':enderChest.items,'inventory.personal_vault_contents':vault.items,'inventory.bag_contents.talisman_bag':accessories.items,...Object.fromEntries(((backpack.containers??[]) as JsonObject[]).map(c=>['inventory.backpack_contents.'+c.containerId,(backpack.items??[]).filter(i=>String(i.containerId)===String(c.containerId))])),...(legacyWardrobe?{'inventory.wardrobe_contents':wardrobe.items}:{})});
+  const sections={ stats, skills: skillSection(m, catalog, playerMetadata), currencies, slayers, dungeons, pets, collections, minions, equipment: equipmentSection, accessories: accessorySection, garden,...gameSystems(m,raw),...additionalSections(m,raw,playerMetadata),bestiary:bestiaryProgress(m),storage:{status:'partial' as const,data:storageLedger,warnings:['Physical item records and view duplicates are distinct. Unidentified duplicate views and unobserved locations prevent a complete ownership total.']},data_contract:{status:'partial' as const,data:{},warnings:[]} }; 
+  const typedSections=sections as unknown as Record<typeof SECTIONS[number],Section>;
+  typedSections.systems.data.registry=SECTIONS.filter(s=>s!=='systems').map(s=>({id:s,status:typedSections[s].status,source:'profile_API_or_separately_labeled_client_observations',fullyImplemented:false,coverage:typedSections[s].data.fieldCoverage??null}));
+  return { id, name: text(raw.cute_name, 32) ?? 'Unnamed', selected: raw.selected === true, gameMode: text(raw.game_mode, 32), sections:typedSections };
 }

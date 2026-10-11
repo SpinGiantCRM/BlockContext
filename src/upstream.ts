@@ -1,3 +1,5 @@
+import {createHash} from 'node:crypto';
+import {projectOwnGame} from './factual-fields.js';
 import { Diagnostics } from './diagnostics.js';
 import { AppError, at, number, object, text, type Identity, type JsonObject, type Upstream } from './types.js';
 
@@ -50,12 +52,12 @@ export class HypixelUpstream implements Upstream {
   }
   private async get(url: string, authenticated: boolean, signal?: AbortSignal): Promise<JsonObject> {
     const path=new URL(url).pathname;
-    const endpoint=path.startsWith('/users/profiles/minecraft/')?'identity':({'/v2/skyblock/profiles':'profiles','/v2/resources/skyblock/skills':'skills','/v2/resources/skyblock/items':'items','/v2/player':'rank','/v2/skyblock/garden':'garden','/v2/skyblock/bazaar':'bazaar','/v2/skyblock/auctions':'auctions'} as Record<string,string>)[path] ?? 'unknown';
+    const endpoint=path.startsWith('/users/profiles/minecraft/')?'identity':({'/v2/skyblock/profiles':'profiles','/v2/resources/skyblock/skills':'skills','/v2/resources/skyblock/items':'items','/v2/player':'rank','/v2/skyblock/garden':'garden','/v2/skyblock/bazaar':'bazaar','/v2/skyblock/auctions':'auctions','/v2/resources/skyblock/collections':'collections','/v2/skyblock/museum':'museum','/v2/skyblock/bingo':'bingo','/v2/skyblock/auction':'own_auctions','/v2/resources/skyblock/election':'election','/v2/resources/skyblock/bingo':'bingo','/v2/skyblock/news':'news','/v2/skyblock/firesales':'fire_sales','/v2/skyblock/auctions_ended':'ended_auctions'} as Record<string,string>)[path] ?? 'unknown';
     const send = async () => {
       const started=performance.now(); let status:number|null=null;
       try {
       if (authenticated) {
-        if (!this.key) throw new AppError('HYPIXEL_KEY_REQUIRED', 'Set HYPIXEL_API_KEY privately in the local .env file to enable live mode.');
+        if (!this.key) throw new AppError('HYPIXEL_KEY_REQUIRED', 'Set HYPIXEL_API_KEY privately in the local .env file to enable API snapshots.');
         const now = this.now(); this.calls = this.calls.filter(t => now - t < 300_000);
         if (this.keyExpiresAt !== undefined && now >= this.keyExpiresAt) throw new AppError('HYPIXEL_KEY_EXPIRED', 'The configured Hypixel development key has expired. Replace it privately in the local .env file.');
         if (now >= this.resetAt) this.remaining = null;
@@ -109,18 +111,17 @@ export class HypixelUpstream implements Upstream {
     const data = await this.get(`https://api.hypixel.net/v2/skyblock/profiles?uuid=${uuid}`, true);
     if (data.profiles === null) return [];
     if (!Array.isArray(data.profiles) || data.profiles.length > 8) throw new AppError('UPSTREAM_INVALID', 'Hypixel returned an invalid profile list.', true);
-    // Discard co-op member data, banking transactions, and fields outside our contract.
+    // Retain the requested member's game fields for semantic and future-field transforms.
+    // Other members, private identities and session/account data never enter the contract.
     return data.profiles.map(value => {
-      const p = object(value); const member = object(at(p, 'members', uuid));
-      const fields = ['leveling', 'fairy_soul', 'player_data', 'currencies', 'slayer', 'dungeons', 'pets_data', 'collection', 'crafted_generators', 'inventory', 'accessory_bag_storage', 'jacobs_contest', 'garden_player_data', 'foraging','mining_core','foraging_core','skill_tree','forge','experimentation','shards','attributes','bestiary','quests','objectives','events','player_stats'];
-      const limited = Object.fromEntries(fields.filter(k => member[k] !== undefined).map(k => [k, member[k]]));
-      if (member.loadout !== undefined) limited.loadout = member.loadout!==null&&typeof member.loadout==='object'&&!Array.isArray(member.loadout)?{ armor: at(member,'loadout','armor'), equipment: at(member,'loadout','equipment') }:null;
-      const profileFields = ['bank_account','cookie_buff_active'];
-      const ownProfile = Object.fromEntries(profileFields.filter(k=>at(member,'profile',k)!==undefined).map(k=>[k,at(member,'profile',k)]));
-      if (Object.keys(ownProfile).length) limited.profile = ownProfile;
-      if (member.rift !== undefined) limited.rift = member.rift;
-      if (member.nether_island_player_data !== undefined) limited.nether_island_player_data = member.nether_island_player_data;
-      return { profile_id: p.profile_id, cute_name: p.cute_name, selected: p.selected, game_mode: p.game_mode, community_upgrades:p.community_upgrades, members: { [uuid]: limited }, banking: p.banking===undefined ? undefined : { balance: at(p, 'banking', 'balance') } };
+      const p=object(value), own=object(at(p,'members',uuid)),dungeons=object(own.dungeons),treasures=object(dungeons.treasures);
+      const tagged=(v:unknown):JsonObject=>{const row=object(v),out={...row};for(const [key,target] of [['run_id','run_instance_id'],['chest_id','chest_instance_id']] as const)if(typeof row[key]==='string')out[target]=createHash('sha256').update(String(row[key])).digest('hex');return out;};
+      const runs=Array.isArray(treasures.runs)?treasures.runs.map(v=>{const row=tagged(v),party=Array.isArray(row.participants)?row.participants:[];return {...row,reportedPartySize:Array.isArray(row.participants)?party.length:null,ownParticipant:party.find(x=>at(x,'player_uuid')===uuid)??null};}):treasures.runs;
+      const chests=Array.isArray(treasures.chests)?treasures.chests.map(tagged):treasures.chests;
+      const types=Object.fromEntries(Object.entries(object(dungeons.dungeon_types)).map(([kind,v])=>{const type=object(v);return [kind,{...type,best_runs:Object.fromEntries(Object.entries(object(type.best_runs)).map(([floor,rs])=>[floor,Array.isArray(rs)?rs.map(r=>({...object(r),reportedPartySize:Array.isArray(at(r,'teammates'))?(at(r,'teammates') as unknown[]).length:null})):rs]))}];}));
+      const member=object(projectOwnGame({...own,...(own.dungeons?{dungeons:{...dungeons,dungeon_types:types,treasures:{...treasures,runs,chests}}}:{})}));
+      const shared=object(projectOwnGame(Object.fromEntries(Object.entries(p).filter(([key])=>!['members','profile_id','cute_name','selected','game_mode'].includes(key)))));
+      return {...shared,profile_id:p.profile_id,cute_name:p.cute_name,selected:p.selected,game_mode:p.game_mode,members:{[uuid]:member}};
     });
   }
   async skillCatalog(): Promise<JsonObject> { return this.get('https://api.hypixel.net/v2/resources/skyblock/skills', false); }
@@ -130,7 +131,7 @@ export class HypixelUpstream implements Upstream {
     return { lastUpdated: number(raw.lastUpdated), items: Object.fromEntries(raw.items.flatMap(value => {
       const id = text(at(value, 'id'));
       if (!id || !/^[A-Z0-9_:.-]{1,96}$/.test(id)) return [];
-      return [[id, { name: text(at(value, 'name')), category: text(at(value, 'category')), tier: text(at(value, 'tier')), npcSellPrice: number(at(value, 'npc_sell_price')) }]];
+      return [[id, { ...object(projectOwnGame(value)), name: text(at(value, 'name')), category: text(at(value, 'category')), tier: text(at(value, 'tier')), npcSellPrice: number(at(value, 'npc_sell_price')) }]];
     })) };
   }
   async playerMetadata(uuid: string): Promise<JsonObject> {
@@ -140,7 +141,7 @@ export class HypixelUpstream implements Upstream {
     const p = object(raw.player);
     if (!Object.keys(p).length) throw new AppError('UPSTREAM_INVALID', 'Hypixel returned invalid player metadata.', true);
     // Rank is needed for Runecrafting's cap. Never retain sessions or login history.
-    return { rank: text(p.rank), packageRank: text(p.packageRank), newPackageRank: text(p.newPackageRank), monthlyPackageRank: text(p.monthlyPackageRank) };
+    return { rank: text(p.rank), packageRank: text(p.packageRank), newPackageRank: text(p.newPackageRank), monthlyPackageRank: text(p.monthlyPackageRank), skyblock:projectOwnGame(at(p,'stats','SkyBlock')), achievements:projectOwnGame(Object.fromEntries(Object.entries(object(p.achievements)).filter(([key])=>key.startsWith('skyblock_')))), achievementsOneTime:Array.isArray(p.achievementsOneTime)?p.achievementsOneTime.filter(v=>typeof v==='string'&&v.startsWith('skyblock_')):null };
   }
   async garden(profile: string): Promise<JsonObject | null> {
     if (!UUID.test(profile)) throw new AppError('INVALID_PROFILE', 'Provide a valid profile UUID.');
@@ -150,8 +151,24 @@ export class HypixelUpstream implements Upstream {
     if (raw.garden === null) return null;
     const g = object(raw.garden);
     if (!Object.keys(g).length || uuidValue(String(g.uuid)) !== profile) throw new AppError('UPSTREAM_INVALID', 'Hypixel returned an invalid Garden identity.', true);
-    const fields = ['garden_experience', 'resources_collected', 'crop_upgrade_levels', 'garden_upgrades', 'unlocked_plots_ids', 'selected_barn_skin', 'commission_data', 'active_commissions', 'composter_data', 'greenhouse'];
-    return Object.fromEntries(fields.filter(k => g[k] !== undefined).map(k => [k, g[k]]));
+    return object(projectOwnGame(Object.fromEntries(Object.entries(g).filter(([key])=>key!=='uuid'))));
+  }
+  async reference(kind:string):Promise<JsonObject> {
+    const endpoints:Record<string,string>={collections:'/v2/resources/skyblock/collections',skills:'/v2/resources/skyblock/skills',items:'/v2/resources/skyblock/items',election:'/v2/resources/skyblock/election',bingo:'/v2/resources/skyblock/bingo',news:'/v2/skyblock/news',fire_sales:'/v2/skyblock/firesales',ended_auctions:'/v2/skyblock/auctions_ended'};
+    const path=endpoints[kind];if(!path)throw new AppError('INVALID_RESOURCE','Choose a supported SkyBlock reference.');
+    const raw=await this.get('https://api.hypixel.net'+path,false);
+    return object(projectOwnGame(raw));
+  }
+  async supplement(kind:'museum'|'bingo'|'auctions',uuid:string,profile:string):Promise<JsonObject> {
+    if(!UUID.test(uuid)||!UUID.test(profile))throw new AppError('INVALID_PROFILE','Provide valid player and profile identities.');
+    if(kind==='museum') {
+      const raw=await this.get('https://api.hypixel.net/v2/skyblock/museum?profile='+profile,true);
+      return {ownMember:projectOwnGame(at(raw,'members',uuid)),endpoint:'museum'};
+    }
+    if(kind==='bingo')return object(projectOwnGame(await this.get('https://api.hypixel.net/v2/skyblock/bingo?uuid='+uuid,true)));
+    const raw=await this.get('https://api.hypixel.net/v2/skyblock/auction?player='+uuid,true);
+    const auctions=Array.isArray(raw.auctions)?raw.auctions.filter(v=>at(v,'profile_id')===profile):null;
+    return {auctions:projectOwnGame(auctions),profileScoped:true};
   }
   async bazaar(): Promise<JsonObject> {
     const raw = await this.get('https://api.hypixel.net/v2/skyblock/bazaar', false);

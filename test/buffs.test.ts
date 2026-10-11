@@ -47,8 +47,8 @@ test('live projection keeps cookie without a bank field, retains effect data and
 test('stats paginate both lists, bound overview output and share a profile request without wall-clock countdowns',async()=>{
   const up=new DemoUpstream(),raw=await up.profiles(DEMO_UUID),m=object(at(raw[0],'members',DEMO_UUID));m.profile={cookie_buff_active:true};object(m.player_data).active_effects=Array.from({length:12},(_,i)=>effect('effect_'+i));object(m.player_data).paused_effects=[effect('paused')];let calls=0;up.profiles=async()=>{calls++;return raw;};let now=1_000_000;const cache=new RequestCache(':memory:',()=>now);
   try{
-    const service=new ProfileService(up,cache,()=>now),first=await service.query('Z3L0R','Strawberry','stats',{offset:1,limit:2});assert.equal(at(first,'result','data','boosterCookie','active'),true);assert.equal(at(first,'pagination','activePotionEffects','total'),12);assert.equal(at(first,'pagination','activePotionEffects','returned'),2);assert.equal(at(first,'pagination','pausedPotionEffects','total'),1);assert.equal((at(first,'result','data','activePotionEffects') as JsonObject[])[0]!.effect,'effect_1');
-    now+=1000;const overview=await service.query('Z3L0R','Strawberry');assert.equal((at(overview,'summary','stats','data','activePotionEffects') as JsonObject[]).length,10);assert.equal(at(overview,'summary','stats','data','activePotionEffectCount'),12);assert.equal(at(overview,'summary','stats','data','potionEffectsInOverview','activeTruncated'),true);assert.equal((at(overview,'summary','stats','data','activePotionEffects') as JsonObject[])[0]!.durationTicks,1200);assert.equal(calls,1);
+    const service=new ProfileService(up,cache,()=>now),first=await service.query('DemoPlayer','Strawberry','stats',{offset:1,limit:2});assert.equal(at(first,'result','data','boosterCookie','active'),true);assert.equal(at(first,'pagination','activePotionEffects','total'),12);assert.equal(at(first,'pagination','activePotionEffects','returned'),2);assert.equal(at(first,'pagination','pausedPotionEffects','total'),1);assert.equal((at(first,'result','data','activePotionEffects') as JsonObject[])[0]!.effect,'effect_1');
+    now+=1000;const overview=await service.query('DemoPlayer','Strawberry');assert.equal((at(overview,'summary','stats','data','activePotionEffects') as JsonObject[]).length,10);assert.equal(at(overview,'summary','stats','data','activePotionEffectCount'),12);assert.equal(at(overview,'summary','stats','data','potionEffectsInOverview','activeTruncated'),true);assert.equal((at(overview,'summary','stats','data','activePotionEffects') as JsonObject[])[0]!.durationTicks,1200);assert.equal(calls,1);
   }finally{cache.close();}
 });
 test('real HTTP MCP client discovers the new stats coverage and receives explicit missing paused effects',async()=>{
@@ -56,7 +56,7 @@ test('real HTTP MCP client discovers the new stats coverage and receives explici
   const cache=new RequestCache(),server=createHttp(new ProfileService(up,cache),'demo');server.listen(0,'127.0.0.1');await once(server,'listening');const client=new Client({name:'buff-test',version:'1'});
   try{
     await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${(server.address() as AddressInfo).port}/mcp`)));const tools=await client.listTools();assert.match(tools.tools.find(t=>t.name==='skyblock_profile_section')!.description!,/Booster Cookie/);
-    const q=await client.callTool({name:'skyblock_profile_section',arguments:{player:'Z3L0R',profile:'Strawberry',section:'stats'}});assert.ok(!q.isError);assert.equal(at(q.structuredContent,'result','data','boosterCookie','active'),false);assert.deepEqual(at(q.structuredContent,'result','data','activePotionEffects'),[]);assert.equal(at(q.structuredContent,'result','data','pausedPotionEffects'),null);assert.equal(at(q.structuredContent,'result','data','fieldCoverage','pausedPotionEffects','reasonCode'),'not_exposed');assert.equal(at(q.structuredContent,'result','status'),'partial');
+    const q=await client.callTool({name:'skyblock_profile_section',arguments:{player:'DemoPlayer',profile:'Strawberry',section:'stats'}});assert.ok(!q.isError);assert.equal(at(q.structuredContent,'result','data','boosterCookie','active'),false);assert.deepEqual(at(q.structuredContent,'result','data','activePotionEffects'),[]);assert.equal(at(q.structuredContent,'result','data','pausedPotionEffects'),null);assert.equal(at(q.structuredContent,'result','data','fieldCoverage','pausedPotionEffects','reasonCode'),'not_exposed');assert.equal(at(q.structuredContent,'result','status'),'partial');
   }finally{await client.close();server.close();server.closeAllConnections();await once(server,'close');cache.close();}
 });
 
@@ -65,7 +65,7 @@ test('missing, empty and unverified Hunting data cannot become an empty or API-v
     const up=new DemoUpstream(),raw=await up.profiles(DEMO_UUID),m=object(at(raw[0],'members',DEMO_UUID));m.foraging={hunting_toolkit:toolkit};up.profiles=async()=>raw;
     const cache=new RequestCache();
     try{
-      const q=await new ProfileService(up,cache).query('Z3L0R','Strawberry','equipment');
+      const q=await new ProfileService(up,cache).query('DemoPlayer','Strawberry','equipment');
       assert.equal(at(q,'result','data','huntaxeStoredWeapon','status'),'unavailable');
       assert.equal(at(q,'result','data','huntaxeStoredWeapon','weapon'),null);
       assert.equal(at(q,'result','data','fieldCoverage','huntaxeStoredWeapon','reasonCode'),'stored_weapon_not_exposed_in_observed_item_lore');

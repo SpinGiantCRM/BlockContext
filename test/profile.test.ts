@@ -10,7 +10,7 @@ import { uuidValue, validatePlayer } from '../src/upstream.js';
 test('demo overview is unmistakably synthetic and includes the exact profile identity', async () => {
   const cache = new RequestCache();
   try {
-    const result = await new ProfileService(new DemoUpstream(), cache).query('Z3L0R', 'Strawberry');
+    const result = await new ProfileService(new DemoUpstream(), cache).query('DemoPlayer', 'Strawberry');
     assert.equal(at(result, 'metadata', 'source'), 'synthetic_demo');
     assert.match(String(at(result, 'metadata', 'warnings')), /invented test values/);
     assert.equal(at(result, 'profile', 'id'), '11111111111111111111111111111111');
@@ -23,10 +23,10 @@ test('case-insensitive names, UUIDs, and selected profiles work; wrong profile e
   const cache = new RequestCache();
   try {
     const service = new ProfileService(new DemoUpstream(), cache);
-    assert.equal(at(await service.query('z3l0r', 'apple'), 'profile', 'gameMode'), 'ironman');
+    assert.equal(at(await service.query('demoplayer', 'apple'), 'profile', 'gameMode'), 'ironman');
     assert.equal(at(await service.query(DEMO_UUID, '22222222-2222-2222-2222-222222222222'), 'profile', 'name'), 'Apple');
-    assert.equal(at(await service.query('Z3L0R'), 'profile', 'name'), 'Strawberry');
-    await assert.rejects(service.query('Z3L0R', 'Banana'), (e: AppError) => e.code === 'PROFILE_NOT_FOUND');
+    assert.equal(at(await service.query('DemoPlayer'), 'profile', 'name'), 'Strawberry');
+    await assert.rejects(service.query('DemoPlayer', 'Banana'), (e: AppError) => e.code === 'PROFILE_NOT_FOUND');
   } finally { cache.close(); }
 });
 test('unknown data stays unavailable; zero purse is known zero; empty inventory is known empty', async () => {
@@ -65,10 +65,10 @@ test('a missing selected profile requires explicit selection; malformed input ca
   const cache = new RequestCache(); const base = new DemoUpstream();
   const upstream = { source: base.source, resolve: base.resolve.bind(base), skillCatalog: base.skillCatalog.bind(base), itemCatalog: base.itemCatalog.bind(base), playerMetadata: base.playerMetadata.bind(base), garden: base.garden.bind(base), bazaar: base.bazaar.bind(base), auctionPage: base.auctionPage.bind(base), profiles: async (uuid: string) => (await base.profiles(uuid)).map(p => ({ ...p, selected: false })) };
   try {
-    await assert.rejects(new ProfileService(upstream, cache).query('Z3L0R'), (e: AppError) => e.code === 'PROFILE_REQUIRED');
+    await assert.rejects(new ProfileService(upstream, cache).query('DemoPlayer'), (e: AppError) => e.code === 'PROFILE_REQUIRED');
     assert.throws(() => validatePlayer('https://example.com/key'), (e: AppError) => e.code === 'INVALID_PLAYER');
     assert.equal(uuidValue('111-11111111111111111111111111111'), null);
-    assert.equal(uuidValue('ab8fd9cd-c4fa-4f4e-8571-c5aa1e07e614'), DEMO_UUID);
+    assert.equal(uuidValue('01234567-89ab-cdef-0123-456789abcdef'), DEMO_UUID);
   } finally { cache.close(); }
 });
 test('overview and detailed sections share the same cached upstream snapshot', async () => {
@@ -76,8 +76,8 @@ test('overview and detailed sections share the same cached upstream snapshot', a
   const profiles = upstream.profiles.bind(upstream); upstream.profiles = async uuid => { calls++; return profiles(uuid); };
   try {
     const service = new ProfileService(upstream, cache);
-    await service.query('Z3L0R', 'Strawberry');
-    const section = await service.query('Z3L0R', 'Strawberry', 'collections');
+    await service.query('DemoPlayer', 'Strawberry');
+    const section = await service.query('DemoPlayer', 'Strawberry', 'collections');
     assert.equal(calls, 1); assert.equal(at(section, 'metadata', 'cache'), 'fresh');
     assert.equal(at(section, 'result', 'data', 'collected', 'WHEAT'), 10000);
   } finally { cache.close(); }
@@ -86,15 +86,15 @@ test('detailed lists and collections paginate without silently losing remaining 
   const cache = new RequestCache();
   try {
     const service = new ProfileService(new DemoUpstream(), cache);
-    const first = await service.query('Z3L0R', 'Strawberry', 'minions', { limit: 1 });
+    const first = await service.query('DemoPlayer', 'Strawberry', 'minions', { limit: 1 });
     assert.deepEqual(at(first, 'result', 'data', 'craftedGenerators'), ['WHEAT_1']);
     assert.equal(at(first, 'pagination', 'craftedGenerators', 'total'), 3);
     assert.equal(at(first, 'pagination', 'craftedGenerators', 'hasMore'), true);
-    const second = await service.query('Z3L0R', 'Strawberry', 'minions', { offset: 1, limit: 2 });
+    const second = await service.query('DemoPlayer', 'Strawberry', 'minions', { offset: 1, limit: 2 });
     assert.deepEqual(at(second, 'result', 'data', 'craftedGenerators'), ['WHEAT_2', 'COBBLESTONE_1']);
     assert.equal(at(second, 'pagination', 'craftedGenerators', 'hasMore'), false);
-    const collection = await service.query('Z3L0R', 'Strawberry', 'collections', { limit: 1 });
+    const collection = await service.query('DemoPlayer', 'Strawberry', 'collections', { limit: 1 });
     assert.deepEqual(at(collection, 'result', 'data', 'collected'), { WHEAT: 10000 });
-    await assert.rejects(service.query('Z3L0R', 'Strawberry', 'pets', { limit: 1000000 }), (e: AppError) => e.code === 'INVALID_PAGE');
+    await assert.rejects(service.query('DemoPlayer', 'Strawberry', 'pets', { limit: 1000000 }), (e: AppError) => e.code === 'INVALID_PAGE');
   } finally { cache.close(); }
 });

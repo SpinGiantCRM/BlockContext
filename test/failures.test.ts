@@ -15,7 +15,7 @@ async function connected(upstream:Upstream,now:()=>number){
   const client=new Client({name:'failure-tests',version:'1'});await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${(server.address() as AddressInfo).port}/mcp`)));
   return {client,close:async()=>{await client.close();server.close();server.closeAllConnections();await once(server,'close');cache.close();}};
 }
-const query={name:'skyblock_profile_section',arguments:{player:'Z3L0R',profile:'Strawberry',section:'equipment'}};
+const query={name:'skyblock_profile_section',arguments:{player:'DemoPlayer',profile:'Strawberry',section:'equipment',mode:'snapshot'}};
 test('real MCP failures distinguish 429 stale fallback from authentication rejection',async()=>{
   for(const code of ['RATE_LIMITED','HYPIXEL_AUTH_FAILED','HYPIXEL_KEY_EXPIRED']){
     let now=1_000_000;const up=new DemoUpstream(),raw=await up.profiles(DEMO_UUID);object(object(raw[0]!.members)[DEMO_UUID]).inventory={};up.profiles=async()=>raw;
@@ -32,7 +32,7 @@ test('real MCP failures distinguish 429 stale fallback from authentication rejec
 test('actual configured key expiry fails over MCP without making a new upstream request',async()=>{
   let now=1_000_000,calls=0;const raw=await new DemoUpstream().profiles(DEMO_UUID);
   const up=new HypixelUpstream('test-secret',async()=>{calls++;return Response.json({success:true,profiles:raw});},()=>now,{keyExpiresAt:new Date(now+300_000).toISOString()});
-  up.resolve=async()=>({uuid:DEMO_UUID,name:'Z3L0R'});up.skillCatalog=async()=>({});up.itemCatalog=async()=>({});up.playerMetadata=async()=>({});
+  up.resolve=async()=>({uuid:DEMO_UUID,name:'DemoPlayer'});up.skillCatalog=async()=>({});up.itemCatalog=async()=>({});up.playerMetadata=async()=>({});up.reference=async()=>({});
   const app=await connected(up,()=>now);
   try{
     assert.ok(!(await app.client.callTool(query)).isError);assert.equal(calls,1);now+=301_000;
@@ -43,8 +43,8 @@ test('ambiguous profiles and hostile inputs return actionable safe MCP errors',a
   const up=new DemoUpstream(),raw=await up.profiles(DEMO_UUID);raw.forEach(p=>{p.selected=false;p.cute_name='Same';});up.profiles=async()=>raw;
   const app=await connected(up,Date.now);
   try{
-    const unspecified=await app.client.callTool({name:'skyblock_profile_context',arguments:{player:'Z3L0R'}});assert.equal(unspecified.isError,true);assert.match(JSON.stringify(unspecified.content),/PROFILE_REQUIRED/);
-    const ambiguous=await app.client.callTool({name:'skyblock_profile_context',arguments:{player:'Z3L0R',profile:'Same'}});assert.equal(ambiguous.isError,true);assert.match(JSON.stringify(ambiguous.content),/PROFILE_AMBIGUOUS/);
+    const unspecified=await app.client.callTool({name:'skyblock_profile_context',arguments:{player:'DemoPlayer'}});assert.equal(unspecified.isError,true);assert.match(JSON.stringify(unspecified.content),/PROFILE_REQUIRED/);
+    const ambiguous=await app.client.callTool({name:'skyblock_profile_context',arguments:{player:'DemoPlayer',profile:'Same'}});assert.equal(ambiguous.isError,true);assert.match(JSON.stringify(ambiguous.content),/PROFILE_AMBIGUOUS/);
     const hostile=await app.client.callTool({name:'skyblock_profile_context',arguments:{player:'https://evil.test'}});assert.equal(hostile.isError,true);
     const badAuction=await app.client.callTool({name:'skyblock_auction_quote',arguments:{item:'SWORD',url:'https://evil.test'}});assert.equal(badAuction.isError,true);
   }finally{await app.close();}

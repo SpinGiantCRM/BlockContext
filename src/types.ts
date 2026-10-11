@@ -1,5 +1,5 @@
 export type JsonObject = Record<string, unknown>;
-export const SECTIONS = ['stats', 'skills', 'currencies', 'slayers', 'dungeons', 'pets', 'collections', 'minions', 'equipment', 'accessories', 'garden', 'mining', 'foraging', 'hunting', 'dailies', 'quests', 'rift', 'crimson_isle', 'chocolate_factory', 'systems'] as const;
+export const SECTIONS = ['stats', 'skills', 'currencies', 'slayers', 'dungeons', 'pets', 'collections', 'minions', 'equipment', 'accessories', 'garden', 'mining', 'foraging', 'hunting', 'dailies', 'quests', 'rift', 'crimson_isle', 'chocolate_factory', 'fishing', 'bestiary', 'travel', 'profile_upgrades', 'events', 'orders', 'museum', 'api_fields', 'storage', 'data_contract', 'systems'] as const;
 export type SectionName = typeof SECTIONS[number];
 export interface Section {
   status: 'available' | 'partial' | 'unavailable';
@@ -24,6 +24,8 @@ export interface Upstream {
   playerMetadata(uuid: string): Promise<JsonObject>;
   garden(profile: string): Promise<JsonObject | null>;
   bazaar(): Promise<JsonObject>;
+  reference?(kind: string): Promise<JsonObject>;
+  supplement?(kind: 'museum'|'bingo'|'auctions',uuid:string,profile:string): Promise<JsonObject>;
   auctionPage(page: number, signal?: AbortSignal): Promise<JsonObject>;
 }
 export class AppError extends Error {

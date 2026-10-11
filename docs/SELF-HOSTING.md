@@ -57,7 +57,7 @@ ChatGPT can optionally use [OpenAI Secure MCP Tunnels](https://developers.openai
 
 ## Verify the result
 
-Initialize the client and discover five read-only tools. Request a profile overview, then equipment and Garden detail. Verify source `hypixel`, the intended profile, timestamps and coverage. A missing inventory or mutation list is unknown; a demo result does not validate a live key. Request Bazaar and auction quotes separately. Auction initialization/discovery does not trigger a scan; the first quote may take up to 45 seconds. Configure the client tool timeout to at least 60 seconds.
+Initialize the client and discover seven read-only tools. Request a profile overview, then equipment and Garden detail. Verify source `hypixel`, the intended profile, timestamps and coverage. A missing inventory or mutation list is unknown; a demo result does not validate a live key. Request Bazaar and auction quotes separately. Auction initialization/discovery does not trigger a scan; the first quote may take up to 45 seconds. Configure the client tool timeout to at least 60 seconds.
 
 Use `npm run check` to run the source archive's offline tests and dependency audit. In HTTP mode, `npm run smoke` checks the actual transport against a running server. It prints normalized player data, so keep its output private.
 
@@ -68,3 +68,5 @@ The [client collector guide](CLIENT-COLLECTOR.md) covers the supported Fabric ve
 ## Maintenance
 
 Rotate or renew your own expiring credentials privately and restart your instance. Set a known development-key expiry with an explicit timezone. Update pinned domain rules only after reviewing and testing them. Back up configuration and source separately from player-cache files. Do not add background player polling or histories. No monetization is built in; check Hypixel's policy before changing the use model.
+
+For live polling, configure the optional collector and use `skyblock_live_context`, with no API fallback. Profile tools default to cached mode and reject live mode. Use explicit snapshot mode for an occasional intentional API check, never a polling loop. Public resources/markets have separate caching and rate limits. See [factual coverage](FACTUAL-DATA-COVERAGE.md) for all section names and limits.

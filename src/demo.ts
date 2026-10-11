@@ -2,13 +2,13 @@ import { readFile } from 'node:fs/promises';
 import { AppError, type Identity, type JsonObject, type Upstream } from './types.js';
 import { uuidValue } from './upstream.js';
 
-export const DEMO_UUID = 'ab8fd9cdc4fa4f4e8571c5aa1e07e614';
-// Only the identity is real. Profile values are clearly labelled synthetic fixtures.
+export const DEMO_UUID = '0123456789abcdef0123456789abcdef';
+// All identities and profile values in demo mode are synthetic fixtures.
 export class DemoUpstream implements Upstream {
   readonly source = 'synthetic_demo' as const;
   async resolve(player: string): Promise<Identity> {
-    if (player.toLowerCase() !== 'z3l0r' && uuidValue(player) !== DEMO_UUID) throw new AppError('DEMO_PLAYER_ONLY', 'Demo mode only includes a synthetic Z3L0R profile.');
-    return { uuid: DEMO_UUID, name: 'Z3L0R' };
+    if (player.toLowerCase() !== 'demoplayer' && uuidValue(player) !== DEMO_UUID) throw new AppError('DEMO_PLAYER_ONLY', 'Demo mode only includes a synthetic DemoPlayer profile.');
+    return { uuid: DEMO_UUID, name: 'DemoPlayer' };
   }
   async profiles(uuid: string): Promise<JsonObject[]> {
     if (uuid !== DEMO_UUID) throw new AppError('DEMO_PLAYER_ONLY', 'No fixture exists for that UUID.');

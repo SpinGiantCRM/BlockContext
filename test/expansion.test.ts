@@ -48,12 +48,12 @@ test('backpack pagination retains coverage and reuses one profile request; icons
   object(object(raw[0]!.members)[DEMO_UUID]).inventory={backpack_contents:{'0':{data:encoded(['STONE','DIAMOND'])},'2':{data:'invalid'}},backpack_icons:{'4':{data:encoded([])}}};
   up.profiles=async()=>{calls++;return raw;};const cache=new RequestCache();const service=new ProfileService(up,cache);
   try {
-    const first=await service.query('Z3L0R','Strawberry','equipment',{limit:1});
+    const first=await service.query('DemoPlayer','Strawberry','equipment',{limit:1});
     assert.equal(at(first,'result','data','storageCoverage','backpackItems'),'partial');assert.equal(at(first,'result','data','backpackItemCount'),null);assert.equal(at(first,'result','data','knownBackpackItemCount'),2);
-    const second=await service.query('Z3L0R','Strawberry','equipment',{offset:1,limit:1});
+    const second=await service.query('DemoPlayer','Strawberry','equipment',{offset:1,limit:1});
     assert.equal(at(second,'pagination','backpackItems','total'),2);assert.equal((at(second,'result','data','backpackItems') as JsonObject[])[0]!.containerId,'0');
     assert.deepEqual(at(first,'result','data','storageWarnings'),at(second,'result','data','storageWarnings'));assert.equal(calls,1);
-    const overview=await service.query('Z3L0R','Strawberry');assert.equal(at(overview,'summary','equipment','backpackItemCount'),null);
+    const overview=await service.query('DemoPlayer','Strawberry');assert.equal(at(overview,'summary','equipment','backpackItemCount'),null);
   } finally {cache.close();}
   const icons=await backpacks(undefined);assert.equal(icons.status,'unavailable');
 });
@@ -72,7 +72,7 @@ test('Greenhouse member progress survives shared Garden failure and has its own 
   object(object(raw[0]!.members)[DEMO_UUID]).garden_player_data={discovered_greenhouse_crops:['veilshroom','ashwreath'],analyzed_greenhouse_crops:[]};
   up.profiles=async()=>raw;up.garden=async()=>{throw new AppError('RATE_LIMITED','Not ready.',true);};
   try {
-    const result=await new ProfileService(up,cache).query('Z3L0R','Strawberry','garden',{offset:1,limit:1});
+    const result=await new ProfileService(up,cache).query('DemoPlayer','Strawberry','garden',{offset:1,limit:1});
     assert.equal(at(result,'result','status'),'unavailable');assert.equal(at(result,'result','data','greenhouse','status'),'available');
     assert.deepEqual(at(result,'result','data','greenhouse','data','discoveredMutations'),['veilshroom']);
     assert.equal(at(result,'pagination','greenhouse.discoveredMutations','total'),2);

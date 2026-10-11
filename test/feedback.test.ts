@@ -70,19 +70,19 @@ test('modern loadouts decode one item per piece, preserve sets, and distinguish 
   assert.equal((await loadouts({'1':{id:2}},'armor')).status,'unavailable');assert.equal((await loadouts({'1':{id:1,HELMET:{data:encoded('HELMET',{},2)}}},'armor')).status,'unavailable');
   assert.equal((await loadouts(Object.fromEntries(Array.from({length:37},(_,i)=>[String(i),{id:i}])),'armor')).status,'unavailable');assert.equal((await loadouts({'1':{HELMET:{data:'A'.repeat(9*1024*1024)}}},'armor')).reasonCode,'safety_limit');
 });
-test('live upstream projection retains own loadout and personal bank while discarding saved loadout names and unrelated profile data',async()=>{
+test('live upstream projection retains own loadout and personal bank while removing private notices',async()=>{
   const raw=(await new DemoUpstream().profiles(DEMO_UUID))[0]!,member=object(at(raw,'members',DEMO_UUID));
   member.loadout={armor:{'1':{id:1,HELMET:{data:encoded('HELMET')}}},equipment:{'1':{id:1}},loadouts:{'1':{name:'private setup'}}};member.profile={bank_account:123,deletion_notice:'private notice'};
   const up=new HypixelUpstream('test-key',async()=>new Response(JSON.stringify({success:true,profiles:[raw]})));const projected=(await up.profiles(DEMO_UUID))[0]!;
-  assert.equal(at(projected,'members',DEMO_UUID,'profile','bank_account'),123);assert.equal(at(projected,'members',DEMO_UUID,'profile','deletion_notice'),undefined);assert.equal(at(projected,'members',DEMO_UUID,'loadout','loadouts'),undefined);
+  assert.equal(at(projected,'members',DEMO_UUID,'profile','bank_account'),123);assert.equal(at(projected,'members',DEMO_UUID,'profile','deletion_notice'),undefined);assert.deepEqual(at(projected,'members',DEMO_UUID,'loadout','loadouts'),{'1':{name:'private setup'}});
   const demo=new DemoUpstream();demo.profiles=async()=>[projected];const cache=new RequestCache();try{
-    const service=new ProfileService(demo,cache),currencies=await service.query('Z3L0R','Strawberry','currencies');assert.equal(at(currencies,'result','data','personalBankCoins'),123);
-    const gear=await service.query('Z3L0R','Strawberry','equipment',{limit:1});assert.equal(at(gear,'pagination','wardrobeItems','total'),1);assert.equal(at(gear,'result','data','fieldCoverage','wardrobeItems','source'),'loadout.armor');assert.equal((at(gear,'result','data','wardrobeItems')as JsonObject[])[0]!.setId,'1');
+    const service=new ProfileService(demo,cache),currencies=await service.query('DemoPlayer','Strawberry','currencies');assert.equal(at(currencies,'result','data','personalBankCoins'),123);
+    const gear=await service.query('DemoPlayer','Strawberry','equipment',{limit:1});assert.equal(at(gear,'pagination','wardrobeItems','total'),1);assert.equal(at(gear,'result','data','fieldCoverage','wardrobeItems','source'),'loadout.armor');assert.equal((at(gear,'result','data','wardrobeItems')as JsonObject[])[0]!.setId,'1');
   }finally{cache.close();}
 });
 test('known zero currency remains zero, missing storage leaves equipment partial, and malformed pets never imply an empty list',async()=>{
   const up=new DemoUpstream(),raw=(await up.profiles(DEMO_UUID))[0]!,m=object(at(raw,'members',DEMO_UUID));raw.banking=undefined;m.profile={bank_account:0};m.currencies={coin_purse:0};m.inventory={inv_armor:{data:encoded('HELMET')}};up.profiles=async()=>[raw];
-  const cache=new RequestCache();try{const service=new ProfileService(up,cache),q=await service.query('Z3L0R','Strawberry','currencies');assert.equal(at(q,'result','data','personalBankCoins'),0);assert.equal(at(q,'result','data','sharedProfileBankCoins'),null);assert.equal(at(q,'result','status'),'partial');assert.equal(at(q,'result','data','fieldCoverage','personalBankCoins','status'),'available');const gear=await service.query('Z3L0R','Strawberry','equipment');assert.equal(at(gear,'result','status'),'partial');assert.equal(at(gear,'result','data','fieldCoverage','backpackItems','reasonCode'),'not_exposed');}finally{cache.close();}
+  const cache=new RequestCache();try{const service=new ProfileService(up,cache),q=await service.query('DemoPlayer','Strawberry','currencies');assert.equal(at(q,'result','data','personalBankCoins'),0);assert.equal(at(q,'result','data','sharedProfileBankCoins'),null);assert.equal(at(q,'result','status'),'partial');assert.equal(at(q,'result','data','fieldCoverage','personalBankCoins','status'),'available');const gear=await service.query('DemoPlayer','Strawberry','equipment');assert.equal(at(gear,'result','status'),'partial');assert.equal(at(gear,'result','data','fieldCoverage','backpackItems','reasonCode'),'not_exposed');}finally{cache.close();}
   assert.equal(petsSection([{}]).status,'partial');assert.equal(at(petsSection({}),'data','pets'),null);assert.equal(petsSection([]).status,'available');
 });
 test('new auction filters are discoverable and callable through a real HTTP MCP client',async()=>{
@@ -92,6 +92,6 @@ test('new auction filters are discoverable and callable through a real HTTP MCP 
 test('legacy wardrobe works when modern armor is absent; malformed modern loadouts cannot masquerade as legacy emptiness',async()=>{
   const up=new DemoUpstream(),raw=(await up.profiles(DEMO_UUID))[0]!,m=object(at(raw,'members',DEMO_UUID));m.inventory={wardrobe_contents:{data:encoded('LEGACY_HELMET')}};up.profiles=async()=>[raw];
   for(const modern of [undefined,null,{armor:[]}] ){
-    m.loadout=modern;const cache=new RequestCache();try{const q=await new ProfileService(up,cache).query('Z3L0R','Strawberry','equipment');assert.equal(at(q,'result','data','fieldCoverage','wardrobeItems','source'),modern===undefined?'inventory.wardrobe_contents':'loadout.armor');assert.equal(at(q,'result','data','wardrobeItemCount'),modern===undefined?1:null);}finally{cache.close();}
+    m.loadout=modern;const cache=new RequestCache();try{const q=await new ProfileService(up,cache).query('DemoPlayer','Strawberry','equipment');assert.equal(at(q,'result','data','fieldCoverage','wardrobeItems','source'),modern===undefined?'inventory.wardrobe_contents':'loadout.armor');assert.equal(at(q,'result','data','wardrobeItemCount'),modern===undefined?1:null);}finally{cache.close();}
   }
 });

@@ -45,7 +45,7 @@ public final class MenuParser {
         if(!m.matches()||Set.of("None","No Weapon").contains(m.group(1)))return Map.of();
         Map<String,Object> out=new LinkedHashMap<>();out.put("status","partial");out.put("displayName",m.group(1).trim());out.put("stars",m.group(2)==null?null:m.group(2).length());out.put("completeWeaponDetails",false);return out;
     }
-    private static final Set<String> FACT_LABELS=Set.of("Level","Tier","Experience","HotM Experience","HotF Experience","Mithril Powder","Gemstone Powder","Glacite Powder","Tokens of the Mountain","Tokens of the Forest","Mining Speed","Mining Fortune","Foraging Fortune","Hunting Fortune","Charm Chance","Pristine","Breaking Power","Magical Power","Bonus Commissions Remaining","Daily Bonus Commissions","Charges","Remaining Charges","Copper","Bits","Motes","Whispers","Chocolate","Progress","Cost","Next Level Cost","Powder Cost","Fuel","Organic Matter","Item Tier","Collection","Health","Defense","Strength","Crit Damage","Crit Chance","Intelligence","Speed","Sea Creature Chance","Fishing Speed");
+    private static final Set<String> FACT_LABELS=Set.of("Level","Tier","Experience","HotM Experience","HotF Experience","Mithril Powder","Gemstone Powder","Glacite Powder","Tokens of the Mountain","Tokens of the Forest","Mining Speed","Mining Fortune","Foraging Fortune","Hunting Fortune","Charm Chance","Pristine","Breaking Power","Magical Power","Bonus Commissions Remaining","Daily Bonus Commissions","Charges","Remaining Charges","Copper","Bits","Motes","Whispers","Chocolate","Progress","Cost","Next Level Cost","Powder Cost","Fuel","Organic Matter","Item Tier","Collection","Health","Defense","Strength","Crit Damage","Crit Chance","Intelligence","Speed","Sea Creature Chance","Fishing Speed","Purse","Piggy","Bank","Mana","Farming Fortune","Mining Wisdom","Foraging Wisdom","Combat Wisdom","Fishing Wisdom","Enchanting Wisdom","Alchemy Wisdom","Taming Wisdom","Hunting Wisdom","Ability Damage","Bonus Attack Speed","True Defense","Vitality","Mending","Sweep","Pressure Resistance","Fossil Dust","Soulflow","Farming","Mining","Foraging","Combat","Fishing","Hunting","Enchanting","Alchemy","Taming","Carpentry","Runecrafting","Social");
     public static List<Map<String,Object>> numericFacts(List<String> lines) {
         List<Map<String,Object>> out=new ArrayList<>();
         for(String raw:lines) {
@@ -56,6 +56,22 @@ public final class MenuParser {
             Map<String,Object> fact=new LinkedHashMap<>();fact.put("label",m.group(1));fact.put("value",value);fact.put("maximum",maximum);fact.put("unit",m.group(5)!=null?"%":m.group(4));out.add(fact);if(out.size()==64)break;
         }
         return out;
+    }
+    public static List<Map<String,Object>> itemStats(List<String> lore) {
+        List<Map<String,Object>> out=new ArrayList<>();
+        for(String raw:lore) {
+            String line=clean(raw).replaceFirst("^[^A-Za-z0-9+-]+", "");
+            Matcher m=Pattern.compile("^(Damage|Health|Defense|Strength|Crit Damage|Crit Chance|Intelligence|Ability Damage|Bonus Attack Speed|Speed|Mining Speed|Mining Fortune|Farming Fortune|Foraging Fortune|Hunting Fortune|Pristine|Breaking Power|Sea Creature Chance|Fishing Speed|Sweep): ([+-]?[0-9][0-9,]*(?:[.][0-9]+)?)(%)?(?: .*)?$").matcher(line);
+            if(!m.matches())continue;double value=Double.parseDouble(m.group(2).replace(",",""));if(!Double.isFinite(value)||Math.abs(value)>1e15)continue;
+            out.add(Map.of("label",m.group(1),"value",value,"unit",m.group(3)==null?"stat":"%","valueKind","primary_displayed_item_stat"));
+        }return out;
+    }
+    public static List<Map<String,Object>> hudFacts(String message) {
+        List<Map<String,Object>> out=new ArrayList<>();String s=clean(message);
+        for(var spec:List.of(new String[]{"Health","❤"},new String[]{"Mana","✎"},new String[]{"Defense","❈"})) {
+            Matcher m=Pattern.compile("([0-9][0-9,]*(?:[.][0-9]+)?)(?:/([0-9][0-9,]*(?:[.][0-9]+)?))?"+spec[1]).matcher(s);
+            if(m.find()){Map<String,Object> fact=new LinkedHashMap<>();fact.put("label",spec[0]);fact.put("value",Double.parseDouble(m.group(1).replace(",","")));fact.put("maximum",m.group(2)==null?null:Double.parseDouble(m.group(2).replace(",","")));fact.put("unit",null);out.add(fact);}
+        }return out;
     }
     public static String kind(String title) {
         title=clean(title);
@@ -69,6 +85,14 @@ public final class MenuParser {
         if(Set.of("Collection","Collections").contains(title))return "collections";
         if(Set.of("Accessory Bag","Your Accessory Bag","Accessory Powers").contains(title))return "accessories";
         if(Set.of("SkyBlock Guide","Quest Log","Community Shop","Profile Upgrades").contains(title))return "quests";
+        if(Set.of("Museum", "Museum Browser", "Museum Rewards", "Your Museum").contains(title))return "museum";
+        if(Set.of("Your Bazaar Orders", "Manage Orders", "Your Auctions", "Auction Bids").contains(title))return "orders";
+        if(Set.of("Fast Travel", "Travel Scrolls", "Abiphone", "Abiphone Contacts").contains(title))return "travel";
+        if(Set.of("Trophy Fish", "Trophy Fishing", "Fishing Equipment").contains(title))return "fishing";
+        if(Set.of("Bestiary", "Bestiary Milestones").contains(title))return "bestiary";
+        if(Set.of("Dungeon Stats", "Catacombs", "Dungeon Classes", "Dungeon Rewards").contains(title))return "dungeons";
+        if(Set.of("Slayer", "Slayer Quest", "Slayer Rewards").contains(title))return "slayers";
+        if(Set.of("SkyBlock Calendar", "Calendar and Events", "Mayor", "Election Room").contains(title))return "events";
         if(title.matches("Hunting Toolkit(?: \\(\\d+/\\d+\\))?"))return "toolkit";
         if(BANK_TITLES.contains(title))return "bank";
         if(title.equals("SkyBlock Menu")||title.equals("Cookie Buff")||title.matches("(?:\\(\\d+/\\d+\\) )?Active Effects"))return "buffs";
@@ -105,14 +129,14 @@ public final class MenuParser {
             return out;
         }
         if(kind.equals("garden")&&clean(title).equals("Crop Diagnostics"))for(ItemView i:slots)if(i.slot()==20)for(String raw:i.lore()){String line=clean(raw);if(line.startsWith("Next Stage: ")){Long n=duration(line.substring(12));if(n!=null)out.put("greenhouseNextStageSecondsAtObservation",n);}}
-        if(Set.of("mining","foraging","hunting","dailies","stats","pets","collections","accessories","quests").contains(kind)) {
+        if(Set.of("mining","foraging","hunting","dailies","stats","pets","collections","accessories","quests","museum","orders","travel","fishing","bestiary","dungeons","slayers","events").contains(kind)) {
             List<Map<String,Object>> facts=new ArrayList<>();
             for(ItemView i:slots) {
                 String name=clean(i.name());if(!name.matches("[A-Za-z0-9 '():+./%✪★-]{1,96}"))continue;
                 List<Map<String,Object>> fields=numericFacts(i.lore());
                 if(!fields.isEmpty())facts.add(Map.of("slot",i.slot(),"displayName",name,"fields",fields));
             }
-            out.put("facts",facts);out.put("observedSlots",slots.size());out.put("completeSystem",false);return out;
+            out.put("facts",facts);out.put("items",slots.stream().filter(i->i.id()!=null).map(ItemView::item).toList());out.put("observedSlots",slots.size());out.put("completeSystem",false);return out;
         }
         List<Map<String,Object>> items=new ArrayList<>();for(ItemView item:slots)if(item.id()!=null)items.add(item.item());
         out.put("items",items);out.put("observedSlots",slots.size());out.put("completeStorage",false);

@@ -12,7 +12,7 @@ export class RequestCache {
   constructor(path = ':memory:', private readonly now = Date.now) {
     if (path !== ':memory:') { mkdirSync(dirname(path), { recursive: true, mode: 0o700 }); }
     this.db = new DatabaseSync(path);
-    this.db.exec('PRAGMA journal_mode=DELETE; CREATE TABLE IF NOT EXISTS cache (key TEXT PRIMARY KEY, value TEXT NOT NULL, fetched_at INTEGER NOT NULL, expires_at INTEGER NOT NULL);');
+    this.db.exec('PRAGMA journal_mode=DELETE; CREATE TABLE IF NOT EXISTS snapshot_checks (key TEXT PRIMARY KEY, checked_at INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS cache (key TEXT PRIMARY KEY, value TEXT NOT NULL, fetched_at INTEGER NOT NULL, expires_at INTEGER NOT NULL);');
     if (path !== ':memory:') chmodSync(path, 0o600);
   }
   async get<T>(key: string, freshMs: number, maxAgeMs: number, load: () => Promise<T>, snapshotTime?: (value: T) => number): Promise<Cached<T>> {
@@ -49,6 +49,22 @@ export class RequestCache {
     }).finally(() => this.flights.delete(key));
     this.flights.set(key, promise);
     return promise;
+  }
+  async snapshot<T>(key:string,freshMs:number,maxAgeMs:number,load:()=>Promise<T>,time:(value:T)=>number,mode:'cached'|'snapshot'='snapshot'):Promise<Cached<T>> {
+    if(mode==='cached'){
+      const existing=this.peek<T>(key,maxAgeMs);
+      if(existing)return {...existing,cache:this.now()-existing.fetchedAt<freshMs?'fresh':'stale',warning:this.now()-existing.fetchedAt>=freshMs?'Cached player snapshot; no API refresh was attempted.':undefined};
+      if(this.db.prepare('SELECT key FROM snapshot_checks WHERE key=?').get(key))throw new AppError('SNAPSHOT_REFRESH_REQUIRED','The cached player snapshot has expired. Request snapshot mode for an explicit on-demand check; use collector live reads for polling.');
+    }
+    const result=await this.get(key,freshMs,maxAgeMs,load,time);
+    this.db.prepare('INSERT INTO snapshot_checks(key,checked_at) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET checked_at=excluded.checked_at').run(key,this.now());
+    this.db.exec('DELETE FROM snapshot_checks WHERE key IN (SELECT key FROM snapshot_checks ORDER BY checked_at DESC LIMIT -1 OFFSET 2048)');
+    return result;
+  }
+  peek<T>(key:string,maxAgeMs:number):Cached<T>|null {
+    const row=this.db.prepare('SELECT value,fetched_at FROM cache WHERE key = ?').get(key) as {value:string;fetched_at:number}|undefined;
+    if(!row||this.now()<row.fetched_at||this.now()-row.fetched_at>=maxAgeMs)return null;
+    return {value:JSON.parse(row.value) as T,fetchedAt:row.fetched_at,cache:'stale'};
   }
   close() { this.db.close(); }
 }

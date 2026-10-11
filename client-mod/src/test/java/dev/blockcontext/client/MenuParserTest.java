@@ -53,6 +53,14 @@ public final class MenuParserTest {
         assert MenuParser.numericFacts(List.of("Coins: 20", "Someone: 34", "Mining Speed: NaN", "Mining Speed: 12 do things")).isEmpty();
         assert MenuParser.parse("Heart of the Mountain",List.of(new MenuParser.ItemView(1,null,"Mining Speed",List.of("Level 20/50"),Map.of()))).get("completeSystem").equals(false);
         assert MenuParser.parse("Huntaxe",List.of(new MenuParser.ItemView(22,"HYPER_CLEAVER","Fabled Hyper Cleaver",List.of("§ka §5EPIC DUNGEON SWORD §ka"),weapon))).get("weapon").equals(weapon);
+        var safe=ItemFacts.project(Map.of("uuid","b".repeat(32),"owner","Secret","petInfo",Map.of("type","GOLDEN_DRAGON","exp",12345),"new_item_counter",12));
+        assert !safe.toString().contains("Secret");assert !safe.toString().contains("bbbbbbbb");assert safe.toString().contains("new_item_counter");
+        assert MenuParser.itemStats(List.of("Damage: +212.5 (+20) (+594.75)")).get(0).get("value").equals(212.5);
+        assert MenuParser.hudFacts("1,234/2,345❤   562❈ Defense 400/500✎ Mana").size()==3;
+        assert MenuParser.kind("Your Bazaar Orders").equals("orders");assert MenuParser.kind("Trade")==null;
+        var changes=ObservationChanges.compare("inventory",Map.of("coins",10,"uuid","a".repeat(32)),Map.of("coins",20,"uuid","b".repeat(32)),100,200);
+        assert changes.size()==1;assert changes.get(0).get("path").equals("inventory.coins");assert changes.get(0).get("previousObservedAt").equals(100L);assert !changes.toString().contains("bbbb");
+        assert ObservationChanges.compare("inventory",Map.of(),Map.of("coins",0),100,200).isEmpty();
         System.out.println("MenuParser: duration, profile binding, buffs, menu isolation, Huntaxe slot, bank separation and partial storage checks passed");
     }
 }

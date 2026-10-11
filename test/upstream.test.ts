@@ -14,12 +14,12 @@ test('identity lookup never sends the Hypixel key; key stays in the Hypixel head
   const upstream = new HypixelUpstream('test-secret', async (input, init) => {
     const url = String(input); seen.push({ url, key: new Headers(init?.headers).get('API-Key') });
     assert.equal(init?.redirect, 'error');
-    return url.includes('mojang') ? response({ id: DEMO_UUID, name: 'Z3L0R' }) : response({ success: true, profiles: fixture });
+    return url.includes('mojang') ? response({ id: DEMO_UUID, name: 'DemoPlayer' }) : response({ success: true, profiles: fixture });
   });
-  await upstream.resolve('Z3L0R'); await upstream.profiles(DEMO_UUID);
+  await upstream.resolve('DemoPlayer'); await upstream.profiles(DEMO_UUID);
   assert.equal(seen[0]!.key, null); assert.equal(seen[1]!.key, 'test-secret'); assert.ok(!seen[1]!.url.includes('test-secret'));
 });
-test('co-op records and banking transactions are removed before normalization', async () => {
+test('co-op identities are removed while own game fields and transaction amounts are retained', async () => {
   const raw = (await new DemoUpstream().profiles(DEMO_UUID))[0]!;
   object(raw.members).another_player = { private: 'unrelated co-op data' };
   raw.banking = { balance: 10, transactions: [{ amount: 99, initiator_name: 'other' }] };
@@ -27,8 +27,8 @@ test('co-op records and banking transactions are removed before normalization', 
   const upstream = new HypixelUpstream('test-secret', async () => response({ success: true, profiles: [raw] }));
   const result = (await upstream.profiles(DEMO_UUID))[0]!;
   assert.deepEqual(Object.keys(object(result.members)), [DEMO_UUID]);
-  assert.equal(at(result, 'banking', 'transactions'), undefined);
-  assert.equal(at(result, 'members', DEMO_UUID, 'unrelated'), undefined);
+  assert.deepEqual(at(result, 'banking', 'transactions'),[{amount:99}]);
+  assert.deepEqual(at(result, 'members', DEMO_UUID, 'unrelated'),{sensitive:true});
 });
 test('remaining budget reserve blocks the next call until the reported reset', async () => {
   let now = 0, calls = 0;

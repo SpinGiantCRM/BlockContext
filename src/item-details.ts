@@ -1,3 +1,4 @@
+import {mapGameFields} from './factual-fields.js';
 import {createHash} from 'node:crypto';
 import {at,number,numericMap,object,text,type JsonObject} from './types.js';
 
@@ -31,11 +32,15 @@ export function itemDetails(extra:JsonObject,lore:unknown):JsonObject {
   for(const key of ['drill_part_engine','drill_part_fuel_tank','drill_part_upgrade_module','power_ability_scroll','skin'])if(typeof extra[key]==='string'&&/^[A-Za-z0-9_:.-]{1,96}$/.test(extra[key]))out[key]=extra[key];
   out.soulbound=typeof extra.donated_museum==='boolean'?extra.donated_museum:typeof extra.soulbound==='boolean'?extra.soulbound:null;
   out.storedWeapon=storedWeaponFromLore(lore);
+  const attrs={...extra};if(typeof attrs.petInfo==='string')try{attrs.petInfo=JSON.parse(attrs.petInfo);}catch{attrs.petInfo=null;}
+  const mapped=mapGameFields(attrs,'attributes','item',256);out.structuredAttributes=mapped;
+  out.receivedAttributeKeys=Object.keys(attrs).filter(k=>!/(uuid|owner|donator|originator|history|timestamp|secret|token|email)/i.test(k)).slice(0,128);
+  out.displayedStats=Array.isArray(lore)?lore.flatMap(raw=>{const line=text(raw,256),match=line?.match(/^([A-Za-z ]{1,40}): ([+-]?[\d,]+(?:\.\d+)?)(%?)(?: |$)/);return match?[{label:match[1],value:Number(match[2]!.replaceAll(',','')),unit:match[3]?'%':'stat',valueKind:'primary_displayed_item_stat'}]:[];}):null;
   out.detailCoverage={complete:false,rawLoreExposed:false,unknownAbsentUpgrades:true};
   return out;
 }
 export function huntaxeSummary(items:JsonObject[]|null):JsonObject {
-  const tools=(items??[]).filter(i=>i.id==='NEX_TITANUM'||i.id==='SILVA_DOMINUS'||i.storedWeapon!==undefined&&i.storedWeapon!==null);
+  const tools=(items??[]).filter(i=>['VENATOR_GENESIS','SILVA_DOMINUS','CURSUS_FERAE','APEX_PRAEDATOR','NEX_TITANUM'].includes(String(i.id))||i.storedWeapon!==undefined&&i.storedWeapon!==null);
   const reports=tools.filter(i=>i.storedWeapon!==null&&i.storedWeapon!==undefined);
   if(!reports.length)return {status:'unavailable',reasonCode:'stored_weapon_not_exposed_in_observed_item_lore',weapon:null,source:'Hypixel profile inventory item lore'};
   const signatures=new Set(reports.map(i=>JSON.stringify(i.storedWeapon)));
