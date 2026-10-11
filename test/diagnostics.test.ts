@@ -33,9 +33,9 @@ test('upstream quota and HTTP errors are measured without credential, URL or exc
  try {
   const upstream=new HypixelUpstream('TOP_SECRET_KEY',async()=>new Response('{"secret":"payload"}',{status:429,headers:{'retry-after':'8','ratelimit-remaining':'5'}}),Date.now,{diagnostics:log});
   await assert.rejects(upstream.profiles('a'.repeat(32)),(e:unknown)=>e instanceof AppError && e.code==='RATE_LIMITED');
-  log.tool('malicious-secret-tool',2,{metadata:{cache:'secret-cache',warnings:['secret-warning','Auction pages changed during the scan; pages from another snapshot were omitted.']},player:'secret-result'},new AppError('SECRET_ERROR_CODE','SECRET_ERROR_MESSAGE'),'secret-section');
+  log.tool('malicious-secret-tool',2,{metadata:{cache:'secret-cache',warnings:['secret-warning','Auction pages changed during the scan; pages from another snapshot were omitted.']},coverage:{retryAttempts:2,recoveredPageFetches:1,failedPageFetches:1},player:'secret-result'},new AppError('SECRET_ERROR_CODE','SECRET_ERROR_MESSAGE'),'secret-section');
   const text=readFileSync(path,'utf8'),rows=text.trim().split('\n').map(s=>JSON.parse(s));
-  assert.equal(rows[0].endpoint,'profiles');assert.equal(rows[0].httpStatus,429);assert.equal(rows[0].remainingRequests,5);assert.equal(rows[1].errorCode,'INTERNAL_ERROR');assert.equal(rows[1].tool,null);assert.deepEqual(rows[1].auctionReasons,['snapshot_changed']);
+  assert.equal(rows[0].endpoint,'profiles');assert.equal(rows[0].httpStatus,429);assert.equal(rows[0].remainingRequests,5);assert.equal(rows[1].errorCode,'INTERNAL_ERROR');assert.equal(rows[1].tool,null);assert.deepEqual(rows[1].auctionReasons,['snapshot_changed']);assert.equal(rows[1].retryAttempts,2);assert.equal(rows[1].recoveredPageFetches,1);assert.equal(rows[1].failedPageFetches,1);log.upstream('auctions',10001,200,new AppError('UPSTREAM_TIMEOUT','private body detail',true));const last=JSON.parse(readFileSync(path,'utf8').trim().split('\n').at(-1)!);assert.equal(last.errorCode,'UPSTREAM_TIMEOUT');assert.ok(!JSON.stringify(last).includes('private body detail'));
   for(const secret of ['TOP_SECRET','secret','SECRET_ERROR','http','a'.repeat(32)]) if(secret!=='http') assert.ok(!text.includes(secret),secret);
  }finally{rmSync(dir,{recursive:true,force:true});}
 });

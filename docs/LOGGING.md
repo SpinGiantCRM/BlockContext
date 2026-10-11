@@ -17,3 +17,5 @@ python3 deploy/logging-report.py --directory /var/log/blockcontext --hours 24
 It reports p50/p95/worst durations, cache use, error/throttle counts, coverage and memory. Resource sampling can miss a brief peak; service memory peaks remain available through systemd. No automatic reports or external telemetry uploads are configured.
 
 Collection starts when enabled. Installation/validation calls are reflected in counts; subsequent windows reflect normal use. Tests cover privacy, real HTTP/stdio integration, upstream throttling, rotation, expiry and unavailable sinks.
+
+Auction measurements include bounded retry attempts, recovered page fetches and final failed page fetches. The report totals these only for cache-miss responses and excludes cache hits. Concurrent callers sharing a scan can each report the same scan counters. Response-body timeouts use `UPSTREAM_TIMEOUT`; malformed JSON remains `UPSTREAM_INVALID`.

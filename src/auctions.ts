@@ -1,11 +1,12 @@
 import { Worker } from 'node:worker_threads';
+import { setTimeout as delay } from 'node:timers/promises';
 import { RequestCache } from './cache.js';
 import { AppError, at, number, object, type JsonObject, type Upstream } from './types.js';
 
 import { SCROLLS, WITHER_BLADES } from './auction-variants.js';
 
 type Listing = [id:string, coins:number, count:number, rarity:string, reforge:string|null, stars:number, end:number, petType:string|null, variants:JsonObject];
-interface Index { listings: Listing[]; updatedAt: number; retrievedAt: number; totalPages: number; scannedPages: number; totalAuctions: number; scannedAuctions: number; complete: boolean; invalidListings: number; warnings: string[] }
+interface Index { listings: Listing[]; updatedAt: number; retrievedAt: number; totalPages: number; scannedPages: number; totalAuctions: number; scannedAuctions: number; complete: boolean; invalidListings: number; retryAttempts: number; recoveredPageFetches: number; failedPageFetches: number; warnings: string[] }
 export interface AuctionFilters { rarity?: string; reforge?: string; stars?: number; petType?: string; petLevel?: number; scrolls?: string[] }
 class Decoder {
   private readonly worker = new Worker(new URL('./auction-worker.js',import.meta.url),{env:{},execArgv:[],resourceLimits:{maxOldGenerationSizeMb:96,stackSizeMb:2}});
@@ -38,7 +39,7 @@ export class AuctionService {
     if ((filters.petType !== undefined || filters.petLevel !== undefined) && id !== 'PET') throw new AppError('INVALID_AUCTION_QUERY','Pet filters are supported only for item PET.');
     if (filters.petLevel !== undefined && (!Number.isInteger(filters.petLevel)||filters.petLevel<1||filters.petLevel>200)) throw new AppError('INVALID_AUCTION_QUERY','Pet level must be an integer from 1 to 200.');
     if (filters.scrolls !== undefined && (!WITHER_BLADES.has(id)||!Array.isArray(filters.scrolls)||filters.scrolls.length>3||filters.scrolls.some(v=>!SCROLLS.includes(v as typeof SCROLLS[number]))||new Set(filters.scrolls).size!==filters.scrolls.length)) throw new AppError('INVALID_AUCTION_QUERY','Use an exact set of supported ability scrolls for a Wither blade.');
-    const snapshot = await this.cache.get(`v6:${this.upstream.source}:auction-index`,60_000,180_000,()=>this.scan(),v=>Math.min(v.retrievedAt,v.updatedAt));
+    const snapshot = await this.cache.get(`v7:${this.upstream.source}:auction-index`,60_000,180_000,()=>this.scan(),v=>Math.min(v.retrievedAt,v.updatedAt));
     const data = snapshot.value; this.validateTime(data.updatedAt);
     const candidates = data.listings.filter(([itemId,,,,,,,petType]) => itemId===id && (filters.petType===undefined || petType===filters.petType)).filter(l=>l[6]>this.now() && (filters.rarity===undefined || l[3]===filters.rarity) && (filters.reforge===undefined || l[4]===filters.reforge) && (filters.stars===undefined || l[5]===filters.stars));
     const unknownVariantListingCount = candidates.filter(l=>(filters.petLevel!==undefined&&l[8].petLevel===null)||(filters.scrolls!==undefined&&l[8].scrolls===null)).length;
@@ -52,9 +53,9 @@ export class AuctionService {
     if (this.upstream.source==='synthetic_demo') warnings.unshift('SYNTHETIC DEMO: this auction snapshot is invented.');
     const lowestObserved = sorted[0]?.[1] ?? null;
     return {
-      metadata: { source: this.upstream.source, retrievedAt:new Date(data.retrievedAt).toISOString(), upstreamUpdatedAt:new Date(data.updatedAt).toISOString(), ageSeconds:Math.max(0,Math.floor((this.now()-data.updatedAt)/1000)), cache:snapshot.cache, stale:snapshot.cache==='stale', freshnessPolicy:{refreshAfterSeconds:60,maximumSnapshotAgeSeconds:180,refreshOnlyOnRequest:true}, warnings },
+      metadata: { source: this.upstream.source, retrievedAt:new Date(data.retrievedAt).toISOString(), upstreamUpdatedAt:new Date(data.updatedAt).toISOString(), ageSeconds:Math.max(0,Math.floor((this.now()-data.updatedAt)/1000)), cache:snapshot.cache, stale:snapshot.cache==='stale', freshnessPolicy:{refreshAfterSeconds:60,maximumSnapshotAgeSeconds:180,refreshOnlyOnRequest:true}, warnings:[...new Set(warnings)] },
       item:{id}, filters, currency:'SkyBlock coins', feesIncluded:false, priceKind:'active_bin_asking_price',
-      coverage:{status:complete?'complete':'partial',scanStatus:data.complete?'complete':'partial',variantStatus:unknownVariantListingCount?'partial':'complete',unknownVariantListingCount,scannedPages:data.scannedPages,totalPages:data.totalPages,scannedAuctions:data.scannedAuctions,totalAuctions:data.totalAuctions,invalidListings:data.invalidListings},
+      coverage:{status:complete?'complete':'partial',scanStatus:data.complete?'complete':'partial',variantStatus:unknownVariantListingCount?'partial':'complete',unknownVariantListingCount,scannedPages:data.scannedPages,totalPages:data.totalPages,scannedAuctions:data.scannedAuctions,totalAuctions:data.totalAuctions,invalidListings:data.invalidListings,retryAttempts:data.retryAttempts,recoveredPageFetches:data.recoveredPageFetches,failedPageFetches:data.failedPageFetches},
       matchedListingCount:matches.length, lowestBinCoins:complete?lowestObserved:null, lowestObservedBinCoins:lowestObserved,
       lowestUnitCoins:complete && matches.length ? matches.reduce((minimum,l)=>Math.min(minimum,l[1]/l[2]),Infinity):null,
       listings:sorted.slice(0,5).map(l=>({coins:l[1],itemCount:l[2],unitCoins:l[1]/l[2],rarity:l[3],reforge:l[4],stars:l[5],endsAt:new Date(l[6]).toISOString(),petType:l[7],...l[8]}))
@@ -67,7 +68,22 @@ export class AuctionService {
   private async scan(): Promise<Index> {
     const controller = new AbortController(), started = Date.now(), deadline = started+this.budgetMs;
     const timer = setTimeout(()=>controller.abort(),this.budgetMs), decoder = new Decoder();
-    const index: Index = {listings:[],updatedAt:0,retrievedAt:this.now(),totalPages:0,scannedPages:0,totalAuctions:0,scannedAuctions:0,complete:true,invalidListings:0,warnings:[]};
+    const index: Index = {listings:[],updatedAt:0,retrievedAt:this.now(),totalPages:0,scannedPages:0,totalAuctions:0,scannedAuctions:0,complete:true,invalidListings:0,retryAttempts:0,recoveredPageFetches:0,failedPageFetches:0,warnings:[]};
+    const fetchPage = async (page: number): Promise<JsonObject> => {
+      try { return await this.upstream.auctionPage(page,controller.signal); }
+      catch (error) {
+        // At most one retry per page and two per scan, within the original deadline.
+        // Throttling, invalid payloads and access failures are never retried here.
+        if (!(error instanceof AppError) || !error.transient || !['UPSTREAM_TIMEOUT','UPSTREAM_UNAVAILABLE'].includes(error.code) || controller.signal.aborted || index.retryAttempts>=2 || deadline-Date.now()<10_500) { index.failedPageFetches++; throw error; }
+        index.retryAttempts++;
+        try {
+          await delay(250,undefined,{signal:controller.signal});
+          const raw = await this.upstream.auctionPage(page,controller.signal);
+          index.recoveredPageFetches++;
+          return raw;
+        } catch (retryError) { index.failedPageFetches++; throw retryError; }
+      }
+    };
     const seen = new Set<string>();
     const consume = async (raw: JsonObject, expected: number) => {
       this.validateTime(raw.lastUpdated);
@@ -90,12 +106,12 @@ export class AuctionService {
       return true;
     };
     try {
-      await consume(await this.upstream.auctionPage(0,controller.signal),0);
+      await consume(await fetchPage(0),0);
       // Two simultaneous network reads, one bounded parser, and a finite scan.
       for (let page=1;page<index.totalPages;page+=2) {
         if (Date.now()>=deadline) throw new AppError('AUCTION_SCAN_TIMEOUT','Auction scan reached its time budget.',true);
         const pages = [page,...(page+1<index.totalPages?[page+1]:[])];
-        const results = await Promise.allSettled(pages.map(p=>this.upstream.auctionPage(p,controller.signal)));
+        const results = await Promise.allSettled(pages.map(fetchPage));
         let stop = false;
         for (let i=0;i<results.length;i++) {
           const result=results[i]!;
@@ -110,6 +126,7 @@ export class AuctionService {
     } finally { clearTimeout(timer); controller.abort(); decoder.close(); }
     if (index.scannedPages!==index.totalPages || index.scannedAuctions!==index.totalAuctions) index.complete=false;
     index.retrievedAt=this.now(); this.validateTime(index.updatedAt);
+    index.warnings=[...new Set(index.warnings)];
     return index;
   }
 }

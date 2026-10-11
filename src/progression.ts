@@ -6,7 +6,7 @@ interface Rules {
   petRarityOffsets: Record<string, number>; petXpSteps: number[];
   customPetLeveling: Record<string, {type?: number; pet_levels?: number[]; max_level?: number; rarity_offset?: Record<string,number>}>;
   knownPetTypes: string[]; catacombsXpSteps: number[]; catacombsCap: number;
-  normalFloorLevelRequirements: number[]; floorRequirementSource: string;
+  normalFloorLevelRequirements: number[]; floorRequirementSource: string; floorRequirementReview: { checkedAt: string; status: string; sources: string[] };
 }
 const rules: Rules = JSON.parse(readFileSync(new URL('../../fixtures/domain/progression.json', import.meta.url),'utf8'));
 const petTypes = new Set(rules.knownPetTypes);
@@ -65,8 +65,8 @@ export function dungeonsSection(member: JsonObject): Section {
     const nextFloor=calculation?.status==='available'?rules.normalFloorLevelRequirements.findIndex(l=>l>Number(calculation.effectiveLevel)):-1;
     types[k]={experience:xp,highestTierCompleted:highest,completions:validCompletions?Object.fromEntries(Object.entries(object(completions)).filter(([floor,count])=>/^[0-7]$/.test(floor)&&number(count)!==null&&Number(count)>=0)):null,
       progression:calculation,effectiveLevel:calculation?.effectiveLevel??null,
-      nextUnlock:nextFloor<0?null:{kind:'normal_floor_level_gate',floor:nextFloor+1,requiredCatacombsLevel:rules.normalFloorLevelRequirements[nextFloor],levelsRemaining:rules.normalFloorLevelRequirements[nextFloor]!-Number(calculation!.effectiveLevel),otherPrerequisitesAssessed:false,referenceSource:rules.floorRequirementSource,referenceDate:'2021-03-30'}};
-    fieldCoverage[k]={experience:{status:xp!==null&&xp>=0?'available':'unavailable',reasonCode:xp!==null&&xp>=0?null:'missing_or_invalid_experience'},highestTierCompleted:{status:highest!==null&&Number.isInteger(highest)&&highest>=0&&highest<=7?'available':'unavailable',reasonCode:highest===null?'not_exposed_or_invalid':null},completions:{status:validCompletions?'available':'unavailable',reasonCode:validCompletions?null:'not_exposed_or_invalid'},level:{status:calculation?.status??'unavailable',reasonCode:calculation?.reasonCode??'unsupported_dungeon_type'}};
+      nextUnlock:nextFloor<0?null:{kind:'normal_floor_level_gate',floor:nextFloor+1,requiredCatacombsLevel:rules.normalFloorLevelRequirements[nextFloor],levelsRemaining:rules.normalFloorLevelRequirements[nextFloor]!-Number(calculation!.effectiveLevel),otherPrerequisitesAssessed:false,referenceSource:rules.floorRequirementSource,referenceDate:'2021-03-30',referenceReview:rules.floorRequirementReview}};
+    fieldCoverage[k]={experience:{status:xp!==null&&xp>=0?'available':'unavailable',reasonCode:xp!==null&&xp>=0?null:'missing_or_invalid_experience'},highestTierCompleted:{status:highest!==null&&Number.isInteger(highest)&&highest>=0&&highest<=7?'available':'unavailable',reasonCode:highest===null?'not_exposed_or_invalid':null},completions:{status:validCompletions?'available':'unavailable',reasonCode:validCompletions?null:'not_exposed_or_invalid'},level:{status:calculation?.status??'unavailable',reasonCode:calculation?calculation.reasonCode:'unsupported_dungeon_type'}};
   }
   for (const [k,v] of Object.entries(object(at(member,'dungeons','player_classes'))).slice(0,16)) {
     if (!/^[a-z_]{1,32}$/.test(k)) continue;
@@ -74,5 +74,5 @@ export function dungeonsSection(member: JsonObject): Section {
   }
   const present=raw!==undefined&&raw!==null&&typeof raw==='object'&&!Array.isArray(raw);
   const incomplete=!Object.keys(types).length||Object.values(types).some(v=>at(v,'progression','status')!=='available'||at(v,'completions')===null||at(v,'highestTierCompleted')===null)||at(member,'dungeons','player_classes')===undefined||Object.values(classes).some(v=>at(v,'progression','status')!=='available');
-  return {status:!present?'unavailable':incomplete?'partial':'available',data:{types,classes,fieldCoverage,levelCap:rules.catacombsCap},warnings:['Levels use pinned community XP tables and stop at level 50; overflow XP is separate. Next unlock is the next normal-floor level gate from the cited patch, not permission to enter: Combat level, prior floor completions and any later rule changes must also be checked.',...(incomplete?['Some dungeon XP, class data or floor completions are missing or unsupported.']:[])]};
+  return {status:!present?'unavailable':incomplete?'partial':'available',data:{types,classes,fieldCoverage,levelCap:rules.catacombsCap,floorRequirementReview:rules.floorRequirementReview},warnings:['Levels use pinned community XP tables and stop at level 50; overflow XP is separate. Next unlock is the next normal-floor level gate from the cited patch, not permission to enter: Combat level, prior floor completions and any later rule changes must also be checked. Current floor requirements remain unverified; referenceReview records the latest source review.',...(incomplete?['Some dungeon XP, class data or floor completions are missing or unsupported.']:[])]};
 }

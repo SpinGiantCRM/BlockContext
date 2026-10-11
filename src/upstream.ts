@@ -11,7 +11,7 @@ export function validatePlayer(player: string): string {
   throw new AppError('INVALID_PLAYER', 'Provide a Minecraft username or UUID.');
 }
 
-async function limitedJson(response: Response, maxBytes = 12 * 1024 * 1024): Promise<JsonObject> {
+async function limitedJson(response: Response, signal: AbortSignal, maxBytes = 12 * 1024 * 1024): Promise<JsonObject> {
   if (!response.body) throw new AppError('UPSTREAM_INVALID', 'The upstream response was empty.', true);
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = []; let size = 0;
@@ -25,6 +25,8 @@ async function limitedJson(response: Response, maxBytes = 12 * 1024 * 1024): Pro
     return object(JSON.parse(Buffer.concat(chunks).toString('utf8')));
   } catch (error) {
     if (error instanceof AppError) throw error;
+    if (signal.aborted) throw new AppError('UPSTREAM_TIMEOUT', 'The upstream request exceeded its time limit.', true);
+    if (!(error instanceof SyntaxError)) throw new AppError('UPSTREAM_UNAVAILABLE', 'The upstream response could not be read.', true);
     throw new AppError('UPSTREAM_INVALID', 'The upstream response was not valid JSON.', true);
   }
 }
@@ -64,9 +66,10 @@ export class HypixelUpstream implements Upstream {
         this.calls.push(now);
       }
       let response: Response;
+      const requestSignal = signal ? AbortSignal.any([signal,AbortSignal.timeout(10_000)]) : AbortSignal.timeout(10_000);
       try {
-        response = await this.request(url, { headers: authenticated ? { 'API-Key': this.key } : {}, signal: signal ? AbortSignal.any([signal,AbortSignal.timeout(10_000)]) : AbortSignal.timeout(10_000), redirect: 'error' });
-      } catch { throw new AppError('UPSTREAM_UNAVAILABLE', 'The upstream service could not be reached.', true); }
+        response = await this.request(url, { headers: authenticated ? { 'API-Key': this.key } : {}, signal: requestSignal, redirect: 'error' });
+      } catch { throw requestSignal.aborted ? new AppError('UPSTREAM_TIMEOUT', 'The upstream request exceeded its time limit.', true) : new AppError('UPSTREAM_UNAVAILABLE', 'The upstream service could not be reached.', true); }
       status=response.status;
       if (authenticated) {
         const rem = response.headers.get('ratelimit-remaining'), reset = response.headers.get('ratelimit-reset');
@@ -83,7 +86,7 @@ export class HypixelUpstream implements Upstream {
       if (response.status === 401 || response.status === 403) throw new AppError('HYPIXEL_AUTH_FAILED', 'The upstream service rejected access. Check the application and key.');
       if (response.status === 404 || response.status === 204) throw new AppError('PLAYER_NOT_FOUND', 'No matching Minecraft player was found.');
       if (!response.ok) throw new AppError('UPSTREAM_UNAVAILABLE', 'The upstream service returned an unsuccessful response.', response.status >= 500);
-      const data = await limitedJson(response);
+      const data = await limitedJson(response,requestSignal);
       if (data.success === false) throw new AppError('UPSTREAM_REJECTED', 'Hypixel rejected the request.');
       this.diagnostics.upstream(endpoint,performance.now()-started,status,undefined,authenticated?this.remaining:null);
       return data;

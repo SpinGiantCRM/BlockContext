@@ -604,5 +604,14 @@
     19,
     24
   ],
-  "floorRequirementSource": "https://hypixel.net/threads/skyblock-0-11-3.4058260/"
+  "floorRequirementSource": "https://hypixel.net/threads/skyblock-0-11-3.4058260/",
+  "floorRequirementReview": {
+    "checkedAt": "2026-10-11",
+    "status": "historical_reference_current_rules_unverified",
+    "sources": [
+      "https://hypixel.net/threads/skyblock-0-11-3.4058260/",
+      "https://hypixel.net/threads/skyblock-patch-notes-0-19-4-dungeons-qol-bug-fixes.5490381/",
+      "https://hypixel.net/threads/end-of-the-official-hypixel-wiki-july-2026.6112020/"
+    ]
+  }
 }
