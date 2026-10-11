@@ -10,6 +10,12 @@ def fixture():
     return dict(schemaVersion=1,collectorVersion='0.1.0',exportedAt=NOW,activeProfile=OWNER+':strawberry',profiles=[dict(uuid=OWNER,playerName='Player',profileName='Strawberry',observations={'huntaxe':dict(observedAt=NOW,readFrom='opened_menu',values={'weapon':item}),'bank:personalBankCoins':dict(observedAt=NOW,readFrom='opened_menu',values={'personalBankCoins':0}), 'unrecognized':dict(observedAt=NOW,readFrom='opened_menu',values={'chat':'private'})})])
 
 class Projection(unittest.TestCase):
+    def test_collector_versions(self):
+        for version in ('0.1.0', '0.1.1'):
+            r=fixture();r['collectorVersion']=version
+            self.assertEqual(json.loads(project(json.dumps(r).encode(),OWNER,NOW))['collectorVersion'],version)
+        r=fixture();r['collectorVersion']='0.2.0'
+        with self.assertRaises(ValueError):project(json.dumps(r).encode(),OWNER,NOW)
     def test_projection_and_zero(self):
         blob=project(json.dumps(fixture()).encode(),OWNER,NOW)
         self.assertNotIn(b'private',blob);self.assertNotIn(b'discard',blob)

@@ -1,4 +1,4 @@
-package dev.blockcontext.client;
+package dev.blockcontext.client.mixin;
 import net.minecraft.client.gui.components.PlayerTabOverlay;
 import net.minecraft.network.chat.Component;
 import org.spongepowered.asm.mixin.Mixin;

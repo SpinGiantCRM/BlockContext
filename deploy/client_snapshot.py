@@ -45,7 +45,7 @@ def project(blob, owner, now=None):
     if len(blob) > LIMIT: raise ValueError('oversized snapshot')
     owner = text(owner, r'[a-f0-9]{32}')
     root = json.loads(blob)
-    if root['schemaVersion'] != 1 or root['collectorVersion'] != '0.1.0': raise ValueError('unsupported schema')
+    if root['schemaVersion'] != 1 or root['collectorVersion'] not in ('0.1.0', '0.1.1'): raise ValueError('unsupported schema')
     now = int(time.time()*1000) if now is None else now
     exported = integer(root['exportedAt'], now-86400_000, now+5000)
     profiles = root['profiles']
@@ -71,5 +71,5 @@ def project(blob, owner, now=None):
         result.append(dict(uuid=owner, playerName=name, profileName=profile, observations=obs))
     active=root.get('activeProfile')
     if active is not None and active not in keys: raise ValueError('invalid active profile')
-    out=dict(schemaVersion=1,collectorVersion='0.1.0',exportedAt=exported,activeProfile=active,profiles=result)
+    out=dict(schemaVersion=1,collectorVersion=root['collectorVersion'],exportedAt=exported,activeProfile=active,profiles=result)
     return json.dumps(out, separators=(',',':'), allow_nan=False).encode()

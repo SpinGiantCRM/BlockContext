@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Build against an installed Prism/Fabric 26.2 instance; never downloads or runs a game."""
 from pathlib import Path
+from validate import validate
 import argparse,hashlib,json,os,subprocess,zipfile,shutil
 
 root=Path(__file__).resolve().parent
 p=argparse.ArgumentParser();p.add_argument('--prism-root',type=Path,required=True);p.add_argument('--instance',required=True);a=p.parse_args()
+validate(root)
 prism=a.prism_root.resolve();instance=prism/'instances'/a.instance
 components=json.loads((instance/'mmc-pack.json').read_text())['components']
 assert any(c['uid']=='net.minecraft' and c['version']=='26.2' for c in components),'Minecraft 26.2 is required'
@@ -23,7 +25,7 @@ subprocess.run(['javac','--release','25','-proc:none','-classpath',os.pathsep.jo
 test=root/'src/test/java/dev/blockcontext/client/MenuParserTest.java'
 subprocess.run(['javac','--release','25','-classpath',str(classes),'-d',str(classes),str(test)],check=True)
 subprocess.run(['java','-ea','-classpath',str(classes),'dev.blockcontext.client.MenuParserTest'],check=True)
-output=build/'BlockContext-Collector-0.1.0-mc26.2.jar'
+output=build/'BlockContext-Collector-0.1.1-mc26.2.jar'
 with zipfile.ZipFile(output,'w',zipfile.ZIP_DEFLATED) as z:
  for base in [classes,root/'src/main/resources']:
   for f in sorted(base.rglob('*')):

@@ -1,5 +1,6 @@
 package dev.blockcontext.client;
 
+import dev.blockcontext.client.mixin.TabOverlayAccess;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import net.fabricmc.api.ClientModInitializer;
@@ -96,7 +97,7 @@ public final class BlockContextClient implements ClientModInitializer {
     private void inactive(){if(wasActive){wasActive=false;snapshot(false);}lastProfile=null;}
     private void snapshot(boolean active) {
         if(profiles.isEmpty())return;
-        Map<String,Object> root=new LinkedHashMap<>();root.put("schemaVersion",1);root.put("collectorVersion","0.1.0");root.put("exportedAt",System.currentTimeMillis());root.put("activeProfile",active?lastProfile:null);root.put("profiles",new ArrayList<>(profiles.values()));
+        Map<String,Object> root=new LinkedHashMap<>();root.put("schemaVersion",1);root.put("collectorVersion","0.1.1");root.put("exportedAt",System.currentTimeMillis());root.put("activeProfile",active?lastProfile:null);root.put("profiles",new ArrayList<>(profiles.values()));
         byte[] bytes=JSON.toJson(root).getBytes(java.nio.charset.StandardCharsets.UTF_8);if(bytes.length<=512*1024)pending.set(bytes);
     }
     private synchronized void writePending() {
