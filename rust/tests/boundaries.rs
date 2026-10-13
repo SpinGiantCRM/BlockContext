@@ -538,3 +538,16 @@ fn inventory_failure_telemetry_has_sizes_and_codes_without_contents() {
     assert_eq!(row["values"]["inventory_decode_failures"], 1);
     assert_eq!(row["values"]["inventory_input_bytes"], 15);
 }
+
+#[test]
+fn bridge_lifecycle_reports_fixed_component_mode_and_transport() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path().join("usage.jsonl");
+    let d = Diagnostics::new(Some(p.clone())).for_bridge();
+    d.lifecycle("started", "bridge", "ssh");
+    let row: serde_json::Value =
+        serde_json::from_str(std::fs::read_to_string(p).unwrap().lines().next().unwrap()).unwrap();
+    assert_eq!(row["component"], "bridge");
+    assert_eq!(row["mode"], "bridge");
+    assert_eq!(row["transport"], "ssh");
+}

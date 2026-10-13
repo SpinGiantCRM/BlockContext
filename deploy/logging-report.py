@@ -105,12 +105,17 @@ def main():
     rows,invalid=load(a.directory,time.time()-a.hours*3600)
     if a.runtime:rows=[r for r in rows if r['_runtime']==a.runtime]
     if a.component:rows=[r for r in rows if safe(r.get('component'),{'backend','bridge'})==a.component]
-    out={'windowHours':a.hours,'invalidLines':invalid,**summarize(rows),'byRuntime':{},'byComponent':{}}
+    out={'windowHours':a.hours,'invalidLines':invalid,**summarize(rows),'byRuntime':{},'byComponent':{},'byBuild':{}}
     groups=collections.defaultdict(list)
     for r in rows:groups[r['_runtime']+'@'+r['_version']].append(r)
     for k,group in groups.items():out['byRuntime'][k]=summarize(group)
     components=collections.defaultdict(list)
     for r in rows:components[safe(r.get('component'),{'backend','bridge'})].append(r)
     for k,group in components.items():out['byComponent'][k]=summarize(group)
+    builds=collections.defaultdict(list)
+    for r in rows:
+        revision=r.get('buildRevision'); revision=revision if isinstance(revision,str) and re.fullmatch(r'[a-fA-F0-9]{40}',revision) else 'unknown'
+        builds[revision].append(r)
+    for k,group in builds.items():out['byBuild'][k]=summarize(group)
     print(json.dumps(out,indent=2,sort_keys=True))
 if __name__=='__main__':main()

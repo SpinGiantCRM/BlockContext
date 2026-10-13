@@ -279,7 +279,7 @@ impl Diagnostics {
                 state.last_cleanup = t;
             }
             let line =
-                merge(json!({"schema":3,"time":iso(t),"event":event,"runtime":"rust","runtimeVersion":env!("CARGO_PKG_VERSION"),"processStartedAt":iso(self.started_at),"component":self.component}), fields).to_string() + "\n";
+                merge(json!({"schema":3,"time":iso(t),"event":event,"runtime":"rust","runtimeVersion":env!("CARGO_PKG_VERSION"),"buildRevision":option_env!("BLOCKCONTEXT_BUILD_REVISION").filter(|s|s.len()==40&&s.bytes().all(|b|b.is_ascii_hexdigit())),"processStartedAt":iso(self.started_at),"component":self.component}), fields).to_string() + "\n";
             let info = match std::fs::symlink_metadata(path) {
                 Ok(info) => {
                     if !info.is_file() {
@@ -441,7 +441,7 @@ impl Diagnostics {
         if state == "stopping" {
             self.flush_stages();
         }
-        self.emit("lifecycle",json!({"state":if ["started","stopping"].contains(&state){Some(state)}else{None},"mode":if ["demo","live"].contains(&mode){Some(mode)}else{None},"transport":if ["http","stdio"].contains(&transport){Some(transport)}else{None}}))
+        self.emit("lifecycle",json!({"state":if ["started","stopping"].contains(&state){Some(state)}else{None},"mode":if ["demo","live","bridge"].contains(&mode){Some(mode)}else{None},"transport":if ["http","stdio","ssh"].contains(&transport){Some(transport)}else{None}}))
     }
     pub fn resource(&self) {
         if self.path.is_none() {
