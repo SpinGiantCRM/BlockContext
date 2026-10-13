@@ -1,0 +1,82 @@
+{
+  "date": "2026-10-13",
+  "baseline": "Node 24.21 / BlockContext 0.10.0-dev.1",
+  "candidate": "Rust / BlockContext 0.11.1",
+  "method": "Counterbalanced fresh processes; invented demo data; 30 cached overviews and 24 equipment reads per process; localhost HTTP; no upstream requests",
+  "roundsPerCondition": 4,
+  "apiRequests": 0,
+  "loggingEnabled": {
+    "node": {
+      "startupMs": 962.5253761187196,
+      "firstSnapshotMs": 406.340598128736,
+      "cpuSeconds": 2.6399999999999997,
+      "peakRssMiB": 134.79296875,
+      "cached_overview": {
+        "count": 120,
+        "p50Ms": 18.554761540144682,
+        "p95Ms": 87.45093829929829
+      },
+      "cached_equipment": {
+        "count": 96,
+        "p50Ms": 12.922480702400208,
+        "p95Ms": 90.12662526220083
+      }
+    },
+    "rust": {
+      "startupMs": 94.81058875098825,
+      "firstSnapshotMs": 238.67415264248848,
+      "cpuSeconds": 1.97,
+      "peakRssMiB": 47.21484375,
+      "cached_overview": {
+        "count": 120,
+        "p50Ms": 20.313463639467955,
+        "p95Ms": 76.468407176435
+      },
+      "cached_equipment": {
+        "count": 96,
+        "p50Ms": 16.769603826105595,
+        "p95Ms": 70.5763204023242
+      }
+    }
+  },
+  "loggingDisabled": {
+    "node": {
+      "startupMs": 1019.0090201795101,
+      "firstSnapshotMs": 463.40231224894524,
+      "cpuSeconds": 2.46,
+      "peakRssMiB": 131.939453125,
+      "cached_overview": {
+        "count": 120,
+        "p50Ms": 68.33321275189519,
+        "p95Ms": 107.96023532748222
+      },
+      "cached_equipment": {
+        "count": 96,
+        "p50Ms": 12.88810558617115,
+        "p95Ms": 85.40620747953653
+      }
+    },
+    "rust": {
+      "startupMs": 165.32960766926408,
+      "firstSnapshotMs": 244.9521292001009,
+      "cpuSeconds": 1.8699999999999999,
+      "peakRssMiB": 47.154296875,
+      "cached_overview": {
+        "count": 120,
+        "p50Ms": 19.513097126036882,
+        "p95Ms": 75.23116935044527
+      },
+      "cached_equipment": {
+        "count": 96,
+        "p50Ms": 16.250031534582376,
+        "p95Ms": 90.92430118471384
+      }
+    }
+  },
+  "caveats": [
+    "Synthetic profile fixture, not a full real account or auction workload",
+    "Loopback HTTP, not Hypixel or ChatGPT end-to-end latency",
+    "Shared VM scheduling varies; cached latency is not uniformly faster",
+    "CPU counters and sampled/kernel process RSS are separate from Rust allocation profiling"
+  ]
+}
