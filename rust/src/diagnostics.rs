@@ -246,26 +246,40 @@ impl Diagnostics {
         self.emit("lifecycle",json!({"state":if ["started","stopping"].contains(&state){Some(state)}else{None},"mode":if ["demo","live"].contains(&mode){Some(mode)}else{None},"transport":if ["http","stdio"].contains(&transport){Some(transport)}else{None}}))
     }
     pub fn resource(&self) {
-        let mut rss: Option<u64> = None;
         #[cfg(target_os = "linux")]
-        if let Ok(status) = std::fs::read_to_string("/proc/self/status") {
-            rss = status.lines().find_map(|l| {
-                l.strip_prefix("VmRSS:")
-                    .and_then(|s| s.split_whitespace().next())
-                    .and_then(|s| s.parse::<u64>().ok())
-                    .map(|n| n * 1024)
-            });
-        }
-        let (mut user, mut system): (Option<i64>, Option<i64>) = (None, None);
+        let rss: Option<u64> =
+            std::fs::read_to_string("/proc/self/status")
+                .ok()
+                .and_then(|status| {
+                    status.lines().find_map(|l| {
+                        l.strip_prefix("VmRSS:")
+                            .and_then(|s| s.split_whitespace().next())
+                            .and_then(|s| s.parse::<u64>().ok())
+                            .map(|n| n * 1024)
+                    })
+                });
+        #[cfg(not(target_os = "linux"))]
+        let rss: Option<u64> = None;
         #[cfg(unix)]
-        {
+        let (user, system): (Option<i64>, Option<i64>) = {
             let mut usage = std::mem::MaybeUninit::<libc::rusage>::zeroed();
             if unsafe { libc::getrusage(libc::RUSAGE_SELF, usage.as_mut_ptr()) } == 0 {
                 let usage = unsafe { usage.assume_init() };
-                user = Some(usage.ru_utime.tv_sec * 1000000 + usage.ru_utime.tv_usec);
-                system = Some(usage.ru_stime.tv_sec * 1000000 + usage.ru_stime.tv_usec);
+                // libc timeval uses a 32-bit microsecond field on macOS and a
+                // 64-bit field on Linux. Convert through a generic boundary.
+                fn micros<S: Into<i64>, U: Into<i64>>(seconds: S, fraction: U) -> i64 {
+                    seconds.into() * 1000000 + fraction.into()
+                }
+                (
+                    Some(micros(usage.ru_utime.tv_sec, usage.ru_utime.tv_usec)),
+                    Some(micros(usage.ru_stime.tv_sec, usage.ru_stime.tv_usec)),
+                )
+            } else {
+                (None, None)
             }
-        }
+        };
+        #[cfg(not(unix))]
+        let (user, system): (Option<i64>, Option<i64>) = (None, None);
         let dropped = self.state.lock().unwrap().dropped;
         self.emit("resource",json!({"uptimeSeconds":self.started.elapsed().as_secs(),"rssBytes":rss,"heapUsedBytes":null,"externalBytes":null,"cpuUserMicroseconds":user,"cpuSystemMicroseconds":system,"droppedMeasurements":dropped,"runtime":"rust"}));
     }

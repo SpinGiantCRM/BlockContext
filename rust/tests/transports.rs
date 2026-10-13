@@ -75,7 +75,14 @@ async fn official_stdio_client_loads_absolute_private_env_and_keeps_logs_private
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("private.env");
     let logs = dir.path().join("usage.jsonl");
-    std::fs::write(&path,format!("BLOCKCONTEXT_MODE=demo\nBLOCKCONTEXT_TRANSPORT=stdio\nBLOCKCONTEXT_DB={}\nBLOCKCONTEXT_LOG_PATH={}\n",dir.path().join("cache.sqlite").display(),logs.display())).unwrap();
+    // Forward slashes are valid on Windows and avoid dotenv escape sequences.
+    let db_path = dir
+        .path()
+        .join("cache.sqlite")
+        .to_string_lossy()
+        .replace('\\', "/");
+    let log_path = logs.to_string_lossy().replace('\\', "/");
+    std::fs::write(&path,format!("BLOCKCONTEXT_MODE=demo\nBLOCKCONTEXT_TRANSPORT=stdio\nBLOCKCONTEXT_DB={db_path}\nBLOCKCONTEXT_LOG_PATH={log_path}\n")).unwrap();
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -85,6 +92,7 @@ async fn official_stdio_client_loads_absolute_private_env_and_keeps_logs_private
     command
         .arg("--env-file")
         .arg(&path)
+        .stderr(std::process::Stdio::inherit())
         .current_dir(dir.path())
         .env_remove("BLOCKCONTEXT_MODE")
         .env_remove("BLOCKCONTEXT_TRANSPORT")
