@@ -11,8 +11,7 @@ User=blockcontext
 Group=blockcontext
 WorkingDirectory=/opt/blockcontext/app
 EnvironmentFile=/etc/blockcontext/hypixel.env
-Environment=NODE_OPTIONS=--max-old-space-size=128
-ExecStart=/opt/blockcontext/runtime/bin/node /opt/blockcontext/app/dist/src/main.js
+ExecStart=/opt/blockcontext/bin/blockcontext
 Restart=on-failure
 RestartSec=15
 TimeoutStopSec=20

@@ -71,6 +71,7 @@ public final class MenuParserTest {
         assert MenuParser.commissionEvidence(List.of(new MenuParser.ItemView(27,null,"Commission Milestones",List.of("Completed: 48", "Progress: 48/100"),Map.of()))).toString().contains("completed_counter");
         assert !MenuParser.commissionEvidence(List.of(new MenuParser.ItemView(9,null,"Commission",List.of("uuid aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "send a secret"),Map.of()))).toString().contains("aaaaaa");
         testCommissionTracking();
+        testCommissionPersistence();
         var safe=ItemFacts.project(Map.of("uuid","b".repeat(32),"owner","Secret","petInfo",Map.of("type","GOLDEN_DRAGON","exp",12345),"new_item_counter",12));
         assert !safe.toString().contains("Secret");assert !safe.toString().contains("bbbbbbbb");assert safe.toString().contains("new_item_counter");
         assert MenuParser.itemStats(List.of("Damage: +212.5 (+20) (+594.75)")).get(0).get("value").equals(212.5);
@@ -127,6 +128,32 @@ public final class MenuParserTest {
         var partial=commissionSnapshot(false,false,45);@SuppressWarnings("unchecked") var rows=(List<Map<String,Object>>)partial.get("entries");
         List<Map<String,Object>> broken=new ArrayList<>(rows);Map<String,Object> row=new LinkedHashMap<>(broken.get(0));row.put("rewardPreviewValidated",false);broken.set(0,row);
         assert tracker.sample(Map.of("entries",broken),t+11050).isEmpty():"incomplete rewards must not mean zero";
+        CommissionTracker refresh=new CommissionTracker();refresh.sample(ready,t);refresh.sample(ready,t+50);
+        assert refresh.sample(Map.of("entries",broken),t+100).isEmpty();refresh.sample(claimed,t+150);assert refresh.sample(claimed,t+200).get("observedClaimTransitions").equals(1L):"brief partial server reward updates must not erase a stable claimable anchor";
+        CommissionTracker timeout=new CommissionTracker();timeout.sample(ready,t);timeout.sample(ready,t+50);timeout.sample(Map.of("entries",broken),t+100);timeout.sample(Map.of("entries",broken),t+2100);timeout.sample(claimed,t+2150);assert timeout.sample(claimed,t+2200).get("observedClaimTransitions").equals(0L):"a long unvalidated gap cannot prove a claim";
         System.out.println("CommissionTracker: completion/claim separation, exhaustion, renewal, duplicate, gap and profile isolation checks passed");
+    }
+    private static void testCommissionPersistence(){
+        try{
+            long t=java.time.Instant.parse("2026-10-12T04:59:50Z").toEpochMilli();String key="0123456789abcdef0123456789abcdef:apple";CommissionTracker tracker=new CommissionTracker();
+            var active=commissionSnapshot(true,false,44);tracker.sample(active,t,Map.of("remainingBonusCommissions",2));assert tracker.sample(active,t+50,Map.of("remainingBonusCommissions",2)).get("remainingBonusCommissions").equals(2);
+            var ready=commissionSnapshot(true,true,45);tracker.sample(ready,t+100);tracker.sample(ready,t+150);tracker.sample(active,t+200);var claimed=tracker.sample(active,t+250);
+            assert claimed.get("remainingBonusCommissions").equals(1):"an explicit anchor minus an observed bonus claim can be exact";
+            byte[] bytes=CommissionLedgerFile.encode(Map.of(key,tracker));var restored=CommissionLedgerFile.decode(bytes,t+300).get(key);assert restored.tracking(t+300).get("persistentObservedClaims").equals(1L);assert restored.tracking(t+300).get("restoredFromDisk").equals(true);
+            restored.sample(active,t+350);var fresh=restored.sample(active,t+400);assert fresh.get("observedClaimTransitions").equals(1L);assert !fresh.containsKey("remainingBonusCommissions"):"restart preserves counts but invalidates current positive count coverage";
+            tracker.sample(ready,t+500);tracker.sample(ready,t+550);var whileClaimable=CommissionLedgerFile.decode(CommissionLedgerFile.encode(Map.of(key,tracker)),t+600).get(key);whileClaimable.sample(active,t+650);assert whileClaimable.sample(active,t+700).get("observedClaimTransitions").equals(1L):"pending claimable state must not survive restart";
+            var exhausted=commissionSnapshot(false,false,45);restored.sample(exhausted,t+800);restored.sample(exhausted,t+850);
+            var again=CommissionLedgerFile.decode(CommissionLedgerFile.encode(Map.of(key,restored)),t+900).get(key);again.sample(active,t+11000);again.sample(active,t+11050);
+            var reset=again.tracking(t+11050);assert reset.get("referenceResetFallsInObservedWindow").equals(true);assert reset.get("referenceResetServerVerified").equals(false);assert reset.get("persistentObservedClaims").equals(1L);assert reset.get("observedBonusClaimsInReferenceDay").equals(0L);
+            byte[] broken=bytes.clone();broken[12]^=1;try{CommissionLedgerFile.decode(broken,t+300);throw new AssertionError("corruption accepted");}catch(java.io.IOException expected){}
+            try{CommissionLedgerFile.decode(java.util.Arrays.copyOf(bytes,bytes.length-1),t+300);throw new AssertionError("truncation accepted");}catch(java.io.IOException expected){}
+            try{CommissionLedgerFile.decode(bytes,t-1);throw new AssertionError("future checkpoint accepted");}catch(java.io.IOException expected){}
+            var path=java.nio.file.Files.createTempDirectory("commission-ledger-test-");try{
+                if(java.nio.file.Files.getFileStore(path).supportsFileAttributeView("posix"))java.nio.file.Files.setPosixFilePermissions(path,java.nio.file.attribute.PosixFilePermissions.fromString("rwx------"));
+                var file=path.resolve("ledger.bin");CommissionLedgerFile.write(file,bytes);assert CommissionLedgerFile.read(file,t+300).get(key).tracking(t+300).get("persistentObservedBonusClaims").equals(1L);
+                if(java.nio.file.Files.getFileStore(file).supportsFileAttributeView("posix"))assert java.nio.file.Files.getPosixFilePermissions(file).equals(java.nio.file.attribute.PosixFilePermissions.fromString("rw-------"));java.nio.file.Files.delete(file);
+            }finally{java.nio.file.Files.delete(path);}
+            System.out.println("Commission persistence: restart, claim coverage, explicit anchors, reset reference, corruption, future data and atomic private files passed");
+        }catch(java.io.IOException e){throw new AssertionError(e);}
     }
 }

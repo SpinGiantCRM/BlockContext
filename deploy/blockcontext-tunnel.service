@@ -1,0 +1,38 @@
+[Unit]
+Description=BlockContext OpenAI Secure MCP Tunnel
+After=network-online.target blockcontext.service
+Wants=network-online.target blockcontext.service
+ConditionPathExists=/etc/blockcontext/tunnel.env
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=blockcontext-tunnel
+Group=blockcontext-tunnel
+WorkingDirectory=/opt/blockcontext/tunnel
+EnvironmentFile=/etc/blockcontext/tunnel.env
+Environment=GOMEMLIMIT=128MiB
+ExecStart=/opt/blockcontext/tunnel/tunnel-client run --mcp.server-url http://127.0.0.1:3008/mcp --mcp.max-concurrent-requests 2 --control-plane.max-inflight 4 --health.listen-addr 127.0.0.1:3009 --log.format json --admin-ui.log-buffer-events 100 --log.level warn
+Restart=on-failure
+RestartSec=15
+TimeoutStopSec=20
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+MemoryHigh=128M
+MemoryMax=192M
+CPUQuota=50%
+TasksMax=48
+LimitNOFILE=1024
+
+[Install]
+WantedBy=multi-user.target

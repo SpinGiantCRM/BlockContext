@@ -4,26 +4,28 @@ Read-only Hypixel SkyBlock context for MCP clients. Your MCP client supplies the
 
 ## Run it where you want
 
-Use **stdio** for a local MCP client, or **Streamable HTTP** on your own PC/server with a private connection. Requires Node.js 24 or later. The implementation uses standard MCP transports and does not require an OpenAI account. ChatGPT's Secure MCP Tunnel is one optional remote connection method.
+Use **stdio** for a local MCP client, or **Streamable HTTP** on your own PC/server with a private connection. Use a native binary or build with Rust 1.88 or later. The implementation uses standard MCP transports and does not require an OpenAI account. ChatGPT's Secure MCP Tunnel is one optional remote connection method.
 
 Every installation belongs to its operator: your infrastructure, your registered Hypixel application, your credentials and your latest-value cache. There is no shared public BlockContext endpoint. A distributed package does not grant access to another operator's server or API key.
 
 See [self-hosting and client configuration](docs/SELF-HOSTING.md), [Hypixel access setup](docs/HYPIXEL-SETUP.md), and [optional local logging](docs/LOGGING.md).
 
 ```sh
-npm ci
-npm run build
-npm run start:demo
+cargo build --locked --release
+./target/release/blockcontext --mode demo --transport http
 ```
 
-This starts a **synthetic demo** at `http://127.0.0.1:3008/mcp`; it does not contact Hypixel. Copy `.env.example` to your own private `.env`, set live mode and your own key, then use `npm start`. Never paste the key into a chat, client URL or public repository. Follow Hypixel's application policies for ongoing access; development keys expire.
+This starts a **synthetic demo** at `http://127.0.0.1:3008/mcp`; it does not contact Hypixel. Copy `.env.example` to your own private `.env`, set live mode and your own key, then run the binary with `--env-file /absolute/path/to/.env`. Never paste the key into a chat, client URL or public repository. Follow Hypixel's application policies for ongoing access; development keys expire.
 
 See the optional [passive client collector](docs/CLIENT-COLLECTOR.md) for data you manually view in game that the API does not expose. It runs locally without an API key; a separate bridge can sync to your own server.
 
-Commission tracking distinguishes task completion from observed reward claims. Stable validated reward previews can establish that daily bonuses are exhausted; positive remaining counts and exact reset times stay unknown unless explicitly displayed. Claim counts cover observed menu transitions during the collector run. Saved or closed-menu observations do not establish the current daily state.
+Commission tracking distinguishes task completion from observed reward claims. Stable validated reward previews can establish that daily bonuses are exhausted; positive remaining counts and exact reset times stay unknown unless explicitly displayed. Claim counts cover observed menu transitions in a private persistent ledger. Gaps invalidate current positive-count coverage. Saved or closed-menu observations do not establish the current daily state.
 
 ## Tools
 
+Saved [deferred checks](docs/DEFERRED-CHECKS.md) can attach due results to the next explicit profile snapshot. They never create background API polling.
+
+- `skyblock_poll_schedule`: save/list/remove operational checks for the next explicit profile snapshot; no API requests during configuration.
 - `skyblock_profile_context`: compact overview, effective skills/caps, currencies, gear, magical power and Garden coverage.
 - `skyblock_profile_section`: detailed stats, skills, currencies, slayers, dungeons, pets, collections, minions, equipment, accessories or Garden, plus mining, foraging, hunting, dailies, quests, Rift, Crimson Isle, Chocolate Factory, fishing, bestiary, travel, profile upgrades, events, orders, Museum, storage, source API fields and the factual requirements contract. Equipment includes backpacks labelled by container and modern armor/equipment wardrobe sets. Currencies distinguish personal from shared bank balances; fieldCoverage explains missing or unreadable data. Pets have calculated levels and progress to their species cap (including level-200 dragons); Dungeons include effective Catacombs/class levels and the next normal-floor level gate. Garden includes player-specific discovered/analyzed Greenhouse mutations.
 - `skyblock_client_context`: latest owner-only client observations of viewed Huntaxe/storage menus, displayed balances and cookie/God Potion timers, with independent timestamps and partial coverage. Works without a Hypixel API request when configured.
@@ -32,7 +34,7 @@ Commission tracking distinguishes task completion from observed reward claims. S
 - `skyblock_market_quote`: Bazaar instant-buy/sell depth for an exact item ID and quantity, plus official NPC sell value.
 - `skyblock_auction_quote`: active BIN asking prices for an exact item ID, optionally filtered by rarity, reforge, stars, pet type, exact pet level or exact ability scroll set. Listings include pet rarity/XP/level/held item/skin and Wither blade scrolls. Checks page and filtered-variant coverage before returning a global lowest price.
 
-Lists use `offset`/`limit` (default 50, maximum 100). Inspect per-list pagination, including nested Greenhouse mutation lists. All tools are read-only. No trades, gameplay actions, coin spending or personal goal/preference storage. The collector can report a bounded window of factual changes observed during its current run.
+Lists use `offset`/`limit` (default 50, maximum 100). Inspect per-list pagination, including nested Greenhouse mutation lists. Game-data tools are read-only; `skyblock_poll_schedule` writes only local operational configuration. No trades, gameplay actions, coin spending or personal goal/preference storage. The collector can report a bounded window of factual changes observed during its current run.
 
 ## Data boundaries
 
@@ -49,11 +51,11 @@ The HTTP listener is loopback-only and checks Host/Origin, request sizes and con
 ## Validate
 
 ```sh
-npm run check
-npm run smoke
+cargo test --locked --all-targets
+cargo clippy --locked --all-targets -- -D warnings
 ```
 
-The smoke check requires a running HTTP server and accepts `PORT`, `BLOCKCONTEXT_TEST_PLAYER` and `BLOCKCONTEXT_TEST_PROFILE`. A health check alone does not validate Hypixel access. Automated tests use synthetic fixtures and no real key; they exercise both standard transports, parsing bounds, privacy, cache freshness, profile selection, failures and market calculations.
+A health check alone does not validate Hypixel access. Verify an intentional live snapshot through your MCP client. Automated tests use synthetic fixtures and no real key; they exercise standard transports, parsing bounds, privacy, caching and API limits.
 
 ## Sources
 
@@ -77,3 +79,7 @@ Huntaxe tools can expose a stored-weapon display name and stars in API item lore
 `api_fields` enumerates retained own-member, shared-profile and SkyBlock account facts by source path, primitive type, value, scope, unit when verified, observation time and semantic status. New game fields survive projection. Encoded inventory payloads become coverage records and are decoded separately; private identities are omitted. `storage` adds discoverable own inventory, bags, shared/Rift containers and duplicate-instance views, without claiming complete estate totals. `museum`, `orders` and `events` can request separately scoped Museum, own auction and Bingo endpoints in explicit snapshot mode; unknown eligibility, fees, escrow and claims remain unknown.
 
 Official collection resources provide member lifetime tier progress and next unlock thresholds. Member totals do not establish co-op recipe eligibility. Official item definitions provide base stats/requirements and available trade flags; persistent item attributes remain distinct from those base values. HotM/HotF nodes use pinned MIT-licensed definitions for names, caps and supported arithmetic effects/costs; missing cost formulas, prerequisites and effective gear modifiers remain unknown. All calculations identify the pinned rule revision. The `data_contract` section lists factual requirements and missing-data reasons; it is not a claim that every requested formula or server-unsent field is available.
+
+## Rust runtime
+
+The MCP server, API client, normalization, caching access, client snapshot reader and optional SSH bridge run in Rust. The Fabric collector remains Java. SQLite and its existing database tables are preserved. Simple setup and logging-report scripts remain shell/Python. See [migration and validation](docs/RUST-MIGRATION.md).

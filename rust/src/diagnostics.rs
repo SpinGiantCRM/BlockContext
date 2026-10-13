@@ -1,0 +1,324 @@
+use crate::types::*;
+use serde_json::{Value, json};
+use std::{
+    io::{BufRead, Read, Write},
+    path::PathBuf,
+    sync::Mutex,
+    time::Instant,
+};
+pub const TOOLS: &[&str] = &[
+    "skyblock_profile_context",
+    "skyblock_profile_section",
+    "skyblock_market_quote",
+    "skyblock_auction_quote",
+    "skyblock_client_context",
+    "skyblock_live_context",
+    "skyblock_reference",
+    "skyblock_poll_schedule",
+];
+pub const ENDPOINTS: &[&str] = &[
+    "identity",
+    "profiles",
+    "skills",
+    "items",
+    "rank",
+    "garden",
+    "bazaar",
+    "auctions",
+    "collections",
+    "museum",
+    "bingo",
+    "own_auctions",
+    "election",
+    "news",
+    "fire_sales",
+    "ended_auctions",
+];
+#[derive(Default)]
+struct State {
+    dropped: u64,
+    last_failure: i64,
+    last_cleanup: i64,
+    file_started: Option<i64>,
+}
+pub struct Diagnostics {
+    path: Option<PathBuf>,
+    state: Mutex<State>,
+    started: Instant,
+}
+impl Diagnostics {
+    pub fn new(path: Option<PathBuf>) -> Self {
+        Self {
+            path,
+            state: Mutex::new(State::default()),
+            started: Instant::now(),
+        }
+    }
+    fn emit(&self, event: &str, fields: Value) {
+        let Some(path) = &self.path else { return };
+        let mut state = self.state.lock().unwrap();
+        let t = now();
+        let result = (|| -> std::io::Result<()> {
+            let parent = path
+                .parent()
+                .ok_or_else(|| std::io::Error::other("Log directory required"))?;
+            crate::client::private_dir(parent)?;
+            let base = path
+                .file_name()
+                .ok_or_else(|| std::io::Error::other("Log file required"))?
+                .to_string_lossy();
+            if state.last_cleanup == 0 || t - state.last_cleanup >= 3600000 {
+                for entry in std::fs::read_dir(parent)? {
+                    let entry = entry?;
+                    let name = entry.file_name().to_string_lossy().into_owned();
+                    if name != base
+                        && !(name.starts_with(&format!("{base}."))
+                            && name[base.len() + 1..].parse::<u32>().is_ok())
+                    {
+                        continue;
+                    }
+                    let info = std::fs::symlink_metadata(entry.path())?;
+                    if !info.is_file() {
+                        return Err(std::io::Error::other("Unsafe log file"));
+                    }
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::MetadataExt;
+                        if info.nlink() != 1 {
+                            return Err(std::io::Error::other("Unsafe log link"));
+                        }
+                    }
+                    if info.modified()?.elapsed().unwrap_or_default().as_secs() >= 14 * 86400 {
+                        std::fs::remove_file(entry.path())?;
+                        if name == base {
+                            state.file_started = None
+                        }
+                    }
+                }
+                state.last_cleanup = t;
+            }
+            let line =
+                merge(json!({"schema":1,"time":iso(t),"event":event}), fields).to_string() + "\n";
+            let info = match std::fs::symlink_metadata(path) {
+                Ok(info) => {
+                    if !info.is_file() {
+                        return Err(std::io::Error::other("Unsafe log file"));
+                    }
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::MetadataExt;
+                        if info.nlink() != 1 {
+                            return Err(std::io::Error::other("Unsafe log link"));
+                        }
+                    }
+                    Some(info)
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+                Err(e) => return Err(e),
+            };
+            let size = info.map(|i| i.len()).unwrap_or(0);
+            if size > 0 && state.file_started.is_none() {
+                let f = std::fs::File::open(path)?;
+                let mut line = String::new();
+                std::io::BufReader::new(f)
+                    .take(65536)
+                    .read_line(&mut line)?;
+                let first: Value = serde_json::from_str(&line)
+                    .map_err(|_| std::io::Error::other("Invalid log header"))?;
+                state.file_started = first["time"].as_str().and_then(parse_time);
+                if state.file_started.is_none() {
+                    return Err(std::io::Error::other("Invalid log time"));
+                }
+            }
+            if size > 0
+                && (size + line.len() as u64 > 1024 * 1024
+                    || t - state.file_started.unwrap_or(t) >= 86400000)
+            {
+                for i in (1..=13).rev() {
+                    let from = if i == 1 {
+                        path.clone()
+                    } else {
+                        PathBuf::from(format!("{}.{previous}", path.display(), previous = i - 1))
+                    };
+                    let to = PathBuf::from(format!("{}.{i}", path.display()));
+                    if i == 13 && to.exists() {
+                        std::fs::remove_file(&to)?;
+                    }
+                    if from.exists() {
+                        std::fs::rename(from, to)?;
+                    }
+                }
+                state.file_started = None;
+            }
+            let mut opts = std::fs::OpenOptions::new();
+            opts.create(true).append(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                opts.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+            }
+            let mut file = opts.open(path)?;
+            file.write_all(line.as_bytes())?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+            }
+            state.file_started.get_or_insert(t);
+            Ok(())
+        })();
+        if result.is_err() {
+            state.dropped += 1;
+            if t - state.last_failure >= 60000 {
+                state.last_failure = t;
+                eprintln!("BlockContext diagnostics unavailable; measurements dropped.");
+            }
+        }
+    }
+    pub fn tool(
+        &self,
+        name: &str,
+        ms: f64,
+        data: Option<&Value>,
+        error: Option<&AppError>,
+        section: Option<&str>,
+        bytes: Option<usize>,
+    ) {
+        let null = Value::Null;
+        let data = data.unwrap_or(&null);
+        let metadata = &data["metadata"];
+        let coverage = &data["coverage"];
+        let mut reasons = vec![];
+        for (reason, message) in [
+            (
+                "snapshot_changed",
+                "Auction pages changed during the scan; pages from another snapshot were omitted.",
+            ),
+            (
+                "page_fetch_failed",
+                "One or more auction pages could not be retrieved.",
+            ),
+            (
+                "scan_stopped",
+                "The scan stopped before complete coverage could be established.",
+            ),
+        ] {
+            if arr(&metadata["warnings"]).contains(&json!(message)) {
+                reasons.push(reason)
+            }
+        }
+        if n(&coverage["unknownVariantListingCount"]).is_some_and(|n| n > 0.) {
+            reasons.push("unknown_variants")
+        }
+        if n(&coverage["invalidListings"]).is_some_and(|n| n > 0.) {
+            reasons.push("invalid_listings")
+        }
+        let count = |v: &Value| n(v).map(|n| n.round().clamp(0., 1e9));
+        let mut row = json!({"tool":TOOLS.contains(&name).then_some(name),"section":section.filter(|s|SECTIONS.contains(s)),"durationMs":ms.round().clamp(0.,1e9),"outcome":if error.is_some(){"error"}else{"ok"},"errorCode":error.map(|e|safe_code(&e.code)),"retryAfterSeconds":error.and_then(|e|e.retry_after_seconds),"cache":metadata["cache"].as_str().filter(|s|["fresh","miss","stale"].contains(s)),"snapshotAgeSeconds":count(&metadata["ageSeconds"]),"warningCount":arr(&metadata["warnings"]).len(),"responseBytes":bytes,"sectionStatus":at(data,"result.status").as_str().filter(|s|["available","partial","unavailable"].contains(s)),"auctionCoverage":coverage["status"].as_str().filter(|s|["complete","partial"].contains(s)),"auctionReasons":reasons});
+        for (src, dest) in [
+            ("scannedPages", "scannedPages"),
+            ("totalPages", "totalPages"),
+            ("scannedAuctions", "scannedAuctions"),
+            ("invalidListings", "invalidListings"),
+            ("unknownVariantListingCount", "unknownVariantListings"),
+            ("retryAttempts", "retryAttempts"),
+            ("recoveredPageFetches", "recoveredPageFetches"),
+            ("failedPageFetches", "failedPageFetches"),
+        ] {
+            row[dest] = json!(count(&coverage[src]));
+        }
+        self.emit("tool", row)
+    }
+    pub fn upstream(
+        &self,
+        endpoint: &str,
+        ms: f64,
+        status: Option<u16>,
+        error: Option<&AppError>,
+        remaining: Option<u64>,
+    ) {
+        self.emit("upstream",json!({"endpoint":ENDPOINTS.contains(&endpoint).then_some(endpoint),"durationMs":ms.round().clamp(0.,1e9),"httpStatus":status,"outcome":if error.is_some(){"error"}else{"ok"},"errorCode":error.map(|e|safe_code(&e.code)),"remainingRequests":remaining}))
+    }
+    pub fn http(&self, status: u16, ms: f64, active: usize) {
+        self.emit("http",json!({"httpStatus":status,"durationMs":ms.round().clamp(0.,1e9),"activeRequests":active}))
+    }
+    pub fn lifecycle(&self, state: &str, mode: &str, transport: &str) {
+        self.emit("lifecycle",json!({"state":if ["started","stopping"].contains(&state){Some(state)}else{None},"mode":if ["demo","live"].contains(&mode){Some(mode)}else{None},"transport":if ["http","stdio"].contains(&transport){Some(transport)}else{None}}))
+    }
+    pub fn resource(&self) {
+        let mut rss: Option<u64> = None;
+        #[cfg(target_os = "linux")]
+        if let Ok(status) = std::fs::read_to_string("/proc/self/status") {
+            rss = status.lines().find_map(|l| {
+                l.strip_prefix("VmRSS:")
+                    .and_then(|s| s.split_whitespace().next())
+                    .and_then(|s| s.parse::<u64>().ok())
+                    .map(|n| n * 1024)
+            });
+        }
+        let (mut user, mut system): (Option<i64>, Option<i64>) = (None, None);
+        #[cfg(unix)]
+        {
+            let mut usage = std::mem::MaybeUninit::<libc::rusage>::zeroed();
+            if unsafe { libc::getrusage(libc::RUSAGE_SELF, usage.as_mut_ptr()) } == 0 {
+                let usage = unsafe { usage.assume_init() };
+                user = Some(usage.ru_utime.tv_sec * 1000000 + usage.ru_utime.tv_usec);
+                system = Some(usage.ru_stime.tv_sec * 1000000 + usage.ru_stime.tv_usec);
+            }
+        }
+        let dropped = self.state.lock().unwrap().dropped;
+        self.emit("resource",json!({"uptimeSeconds":self.started.elapsed().as_secs(),"rssBytes":rss,"heapUsedBytes":null,"externalBytes":null,"cpuUserMicroseconds":user,"cpuSystemMicroseconds":system,"droppedMeasurements":dropped,"runtime":"rust"}));
+    }
+}
+fn safe_code(code: &str) -> &str {
+    if [
+        "API_LIVE_POLLING_DISABLED",
+        "SNAPSHOT_REFRESH_REQUIRED",
+        "INVALID_RESOURCE",
+        "INVALID_LIVE_OPTIONS",
+        "RESOURCE_UNAVAILABLE",
+        "SUPPLEMENT_UNAVAILABLE",
+        "AUCTION_DECODE_FAILED",
+        "AUCTION_SCAN_TIMEOUT",
+        "AUCTION_SNAPSHOT_EXPIRED",
+        "INVALID_AUCTION_QUERY",
+        "UPSTREAM_TIMEOUT",
+        "UPSTREAM_INVALID",
+        "INTERNAL_ERROR",
+        "RESPONSE_TOO_LARGE",
+        "SNAPSHOT_EXPIRED",
+        "DEMO_PLAYER_ONLY",
+        "INVENTORY_INVALID",
+        "INVALID_MARKET_QUERY",
+        "MARKET_ITEM_NOT_FOUND",
+        "MARKET_SNAPSHOT_EXPIRED",
+        "INVALID_PAGE",
+        "INVALID_PROFILE",
+        "INVALID_SECTION",
+        "NO_SKYBLOCK_PROFILES",
+        "PROFILE_REQUIRED",
+        "PROFILE_AMBIGUOUS",
+        "PROFILE_NOT_FOUND",
+        "HYPIXEL_AUTH_FAILED",
+        "HYPIXEL_KEY_EXPIRED",
+        "HYPIXEL_KEY_REQUIRED",
+        "INVALID_AUCTION_PAGE",
+        "INVALID_CONFIG",
+        "INVALID_PLAYER",
+        "PLAYER_NOT_FOUND",
+        "RATE_LIMITED",
+        "UPSTREAM_REJECTED",
+        "UPSTREAM_TOO_LARGE",
+        "UPSTREAM_UNAVAILABLE",
+        "INVALID_SCHEDULE",
+        "SCHEDULE_LIMIT",
+        "SCHEDULE_IDENTITY_REQUIRED",
+        "CACHE_UNAVAILABLE",
+    ]
+    .contains(&code)
+    {
+        code
+    } else {
+        "INTERNAL_ERROR"
+    }
+}

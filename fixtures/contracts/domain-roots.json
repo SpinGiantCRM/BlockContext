@@ -1,0 +1,104 @@
+{
+  "stats": [
+    "player_stats",
+    "fairy_soul",
+    "leveling",
+    "player_data"
+  ],
+  "skills": [
+    "player_data.experience"
+  ],
+  "currencies": [
+    "currencies",
+    "profile.bank_account",
+    "item_data",
+    "events.easter.chocolate"
+  ],
+  "slayers": [
+    "slayer"
+  ],
+  "dungeons": [
+    "dungeons"
+  ],
+  "pets": [
+    "pets_data"
+  ],
+  "collections": [
+    "collection",
+    "player_data.unlocked_coll_tiers"
+  ],
+  "minions": [
+    "player_data.crafted_generators",
+    "crafted_generators"
+  ],
+  "equipment": [
+    "inventory",
+    "shared_inventory",
+    "loadout",
+    "item_data"
+  ],
+  "accessories": [
+    "accessory_bag_storage"
+  ],
+  "garden": [
+    "garden_player_data",
+    "jacobs_contest"
+  ],
+  "mining": [
+    "mining_core",
+    "glacite_player_data",
+    "forge",
+    "skill_tree"
+  ],
+  "foraging": [
+    "foraging",
+    "foraging_core",
+    "skill_tree"
+  ],
+  "hunting": [
+    "shards",
+    "attributes",
+    "temples",
+    "foraging.hunting_toolkit"
+  ],
+  "quests": [
+    "quests",
+    "objectives",
+    "leveling"
+  ],
+  "rift": [
+    "rift"
+  ],
+  "crimson_isle": [
+    "nether_island_player_data"
+  ],
+  "chocolate_factory": [
+    "events.easter"
+  ],
+  "fishing": [
+    "trophy_fish",
+    "player_stats"
+  ],
+  "bestiary": [
+    "bestiary"
+  ],
+  "travel": [
+    "player_data.visited_zones",
+    "player_data.visited_modes",
+    "player_data.fast_travel"
+  ],
+  "profile_upgrades": [
+    "profile"
+  ],
+  "events": [
+    "events",
+    "winter_player_data"
+  ],
+  "orders": [
+    "auction",
+    "bazaar"
+  ],
+  "museum": [
+    "museum"
+  ]
+}

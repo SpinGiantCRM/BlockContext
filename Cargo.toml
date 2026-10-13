@@ -1,0 +1,57 @@
+[package]
+name = "blockcontext"
+version = "0.11.0"
+edition = "2024"
+rust-version = "1.88"
+license = "MIT"
+description = "Self-hosted Hypixel SkyBlock MCP and passive collector bridge"
+
+[lib]
+path = "rust/src/lib.rs"
+
+[[bin]]
+name = "blockcontext"
+path = "rust/src/main.rs"
+
+[[test]]
+name = "parity"
+path = "rust/tests/parity.rs"
+
+[[test]]
+name = "boundaries"
+path = "rust/tests/boundaries.rs"
+
+[[test]]
+name = "transports"
+path = "rust/tests/transports.rs"
+
+[dependencies]
+anyhow = "1"
+axum = "0.8"
+base64 = "0.22"
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4", features = ["derive", "env"] }
+dotenvy = "0.15"
+flate2 = "1"
+fastnbt = "2"
+futures = "0.3"
+libc = "0.2"
+regex = "1"
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
+rmcp = { version = "=3.5.1", features = ["server", "transport-io", "transport-streamable-http-server"] }
+rusqlite = { version = "0.38", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+sha2 = "0.10"
+tokio = { version = "1", features = ["full"] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6", features = ["limit", "timeout"] }
+
+[dev-dependencies]
+tempfile = "3"
+rmcp = { version = "=3.5.1", features = ["client", "transport-child-process", "transport-streamable-http-client-reqwest"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

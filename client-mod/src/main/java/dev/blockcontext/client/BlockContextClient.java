@@ -34,6 +34,9 @@ public final class BlockContextClient implements ClientModInitializer {
     private final Map<String,Map<String,Object>> profiles=new LinkedHashMap<>();
     private final Map<String,CommissionTracker> commissionTrackers=new LinkedHashMap<>();
     private final AtomicReference<byte[]> pending=new AtomicReference<>();
+    private final AtomicReference<byte[]> pendingLedger=new AtomicReference<>();
+    private Path ledgerFile;
+    private volatile boolean persistenceAvailable=true;
     private final ScheduledExecutorService writer=Executors.newSingleThreadScheduledExecutor(r->{Thread t=new Thread(r,"BlockContext snapshot writer");t.setDaemon(true);return t;});
     private Path output;
     private int ticks;
@@ -48,6 +51,8 @@ public final class BlockContextClient implements ClientModInitializer {
     private List<Map<String,Object>> activeChanges=new ArrayList<>();
     @Override public void onInitializeClient() {
         output=FabricLoader.getInstance().getGameDir().resolve("blockcontext/latest.json");
+        ledgerFile=output.resolveSibling("commission-ledger.bin");
+        try{commissionTrackers.putAll(CommissionLedgerFile.read(ledgerFile,System.currentTimeMillis()));}catch(Exception ignored){persistenceAvailable=false;System.out.println("[BlockContext] Commission checkpoint unavailable; existing file preserved.");}
         writer.scheduleWithFixedDelay(this::writePending,0,1,TimeUnit.SECONDS);
         ClientReceiveMessageEvents.GAME.register((message,overlay)->{
             if(overlay&&wasActive&&lastProfile!=null){hudFacts=MenuParser.hudFacts(message.getString());hudObservedAt=System.currentTimeMillis();hudProfile=lastProfile;}
@@ -89,7 +94,7 @@ public final class BlockContextClient implements ClientModInitializer {
             items.add(new MenuParser.ItemView(slot,null,name,lore,Map.of()));
         }
         long now=System.currentTimeMillis();var evidence=MenuParser.commissionEvidence(items);
-        var tracker=commissionTrackers.computeIfAbsent(key,k->new CommissionTracker());var values=new LinkedHashMap<>(MenuParser.commissionMenu(items));values.putAll(tracker.sample(evidence,now));
+        var tracker=commissionTrackers.computeIfAbsent(key,k->new CommissionTracker());var values=new LinkedHashMap<>(MenuParser.commissionMenu(items));values.putAll(tracker.sample(evidence,now,values));
         if(!values.isEmpty())observe(observations,"commissions",values,"opened_menu",now);
         observe(observations,"commissionMenuEvidence",evidence,"opened_menu",now);
     }
@@ -139,7 +144,7 @@ public final class BlockContextClient implements ClientModInitializer {
                 for(int slot=0;slot<count;slot++)items.add(item(menu.getSlot(slot).getItem(),slot));
                 if(title.equals("Commissions")){
                     var evidence=MenuParser.commissionEvidence(items);var tracker=commissionTrackers.computeIfAbsent(key,k->new CommissionTracker());
-                    var commissions=new LinkedHashMap<>(MenuParser.commissionMenu(items));commissions.putAll(tracker.sample(evidence,now));
+                    var commissions=new LinkedHashMap<>(MenuParser.commissionMenu(items));commissions.putAll(tracker.sample(evidence,now,commissions));
                     if(!commissions.isEmpty())observe(observations,"commissions",commissions,"opened_menu",now);
                     observe(observations,"commissionMenuEvidence",evidence,"opened_menu",now);
                 }
@@ -150,6 +155,8 @@ public final class BlockContextClient implements ClientModInitializer {
             }
         }
         if(!observedNow.contains("commissionMenuEvidence"))commissionTrackers.values().forEach(CommissionTracker::gap);
+        while(commissionTrackers.size()>8)commissionTrackers.remove(commissionTrackers.keySet().iterator().next());
+        var tracking=new LinkedHashMap<>(commissionTrackers.computeIfAbsent(key,k->new CommissionTracker()).tracking(now));tracking.put("persistenceAvailable",persistenceAvailable);observe(observations,"commissionTracking",tracking,"collector_ledger",now);
         while(commissionTrackers.size()>8)commissionTrackers.remove(commissionTrackers.keySet().iterator().next());
         // Never retain an unbounded menu history. Each key holds only its latest observation.
         while(observations.size()>96){observations.remove(observations.keySet().iterator().next());evictedObservations++;}
@@ -208,7 +215,8 @@ public final class BlockContextClient implements ClientModInitializer {
     private void inactive(){commissionTrackers.values().forEach(CommissionTracker::gap);if(wasActive){wasActive=false;snapshot(false);}lastProfile=null;}
     private void snapshot(boolean active) {
         if(profiles.isEmpty())return;
-        Map<String,Object> root=new LinkedHashMap<>();root.put("schemaVersion",1);root.put("collectorVersion","0.3.4");root.put("exportedAt",System.currentTimeMillis());root.put("activeProfile",active?lastProfile:null);root.put("profiles",new ArrayList<>(profiles.values()));root.put("observedNow",active?new ArrayList<>(observedNow):List.of());root.put("exportIntervalMs",1000);root.put("evictedObservations",evictedObservations);
+        if(persistenceAvailable)try{pendingLedger.set(CommissionLedgerFile.encode(commissionTrackers));}catch(Exception ignored){persistenceAvailable=false;}
+        Map<String,Object> root=new LinkedHashMap<>();root.put("schemaVersion",1);root.put("collectorVersion","0.3.6");root.put("exportedAt",System.currentTimeMillis());root.put("activeProfile",active?lastProfile:null);root.put("profiles",new ArrayList<>(profiles.values()));root.put("observedNow",active?new ArrayList<>(observedNow):List.of());root.put("exportIntervalMs",1000);root.put("evictedObservations",evictedObservations);
         byte[] bytes=JSON.toJson(root).getBytes(java.nio.charset.StandardCharsets.UTF_8);int evicted=0;
         while(bytes.length>1024*1024&&evicted<768) {
             boolean removed=false;for(var profile:profiles.values()){
@@ -220,15 +228,15 @@ public final class BlockContextClient implements ClientModInitializer {
         if(bytes.length<=1024*1024)pending.set(bytes);
     }
     private synchronized void writePending() {
-        byte[] bytes=pending.getAndSet(null);if(bytes==null)return;
+        byte[] bytes=pending.getAndSet(null);byte[] ledger=pendingLedger.getAndSet(null);if(bytes==null&&ledger==null)return;
         Path temp=null;
         try {
             Files.createDirectories(output.getParent());permissions(output.getParent(),"rwx------");
             if(Files.isSymbolicLink(output.getParent())||Files.isSymbolicLink(output))return;
             boolean posix=Files.getFileStore(output.getParent()).supportsFileAttributeView("posix");
-            temp=posix?Files.createTempFile(output.getParent(),".snapshot-",".tmp",PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------"))):Files.createTempFile(output.getParent(),".snapshot-",".tmp");
-            Files.write(temp,bytes,StandardOpenOption.TRUNCATE_EXISTING);
-            Files.move(temp,output,StandardCopyOption.REPLACE_EXISTING,StandardCopyOption.ATOMIC_MOVE);
+            if(bytes!=null){temp=posix?Files.createTempFile(output.getParent(),".snapshot-",".tmp",PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------"))):Files.createTempFile(output.getParent(),".snapshot-",".tmp");
+            Files.write(temp,bytes,StandardOpenOption.TRUNCATE_EXISTING);Files.move(temp,output,StandardCopyOption.REPLACE_EXISTING,StandardCopyOption.ATOMIC_MOVE);}
+            if(ledger!=null&&persistenceAvailable)try{CommissionLedgerFile.write(ledgerFile,ledger);}catch(Exception ignored){persistenceAvailable=false;}
         }catch(Exception ignored){/* Owner data never enters a log on I/O failure. */}finally{if(temp!=null)try{Files.deleteIfExists(temp);}catch(Exception ignored){}}
     }
     private static void permissions(Path p,String mode) throws java.io.IOException {if(Files.getFileStore(p).supportsFileAttributeView("posix"))Files.setPosixFilePermissions(p,PosixFilePermissions.fromString(mode));}

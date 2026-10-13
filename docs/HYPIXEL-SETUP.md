@@ -17,4 +17,4 @@ For an expiring development key, set the last field to its real expiry in ISO fo
 
 Restrict the file to your own account (`600` on Unix). Do not paste keys into chat, MCP URLs, logs, public client configuration, a repository or another operator's service. Public resource/market requests do not send the key. See [self-hosting](SELF-HOSTING.md) for stdio and HTTP configurations.
 
-For an HTTP instance, run `npm start` and `npm run smoke` in separate terminals. Set `BLOCKCONTEXT_TEST_PLAYER` and `BLOCKCONTEXT_TEST_PROFILE` to your desired accessible account/profile. A result must say `metadata.source: hypixel`; synthetic demo or a successful health check alone does not validate access.
+For an HTTP instance, run `blockcontext --env-file /absolute/private/path/.env` and request your intended profile through your MCP client. A result must say `metadata.source: hypixel`; synthetic demo or a successful health check alone does not validate access.

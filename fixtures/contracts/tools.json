@@ -1,0 +1,1248 @@
+[
+  {
+    "name": "skyblock_poll_schedule",
+    "title": "Deferred profile checks",
+    "description": "Save, list or remove operational checks attached to the next explicit profile snapshot request. No background polling, game actions or API calls when configuring checks. Daily UTC times are configurable; the HotM reset preset is a community reference, not a verified server reset. A due HotM check uses collector evidence and stays pending if its count is unknown. Other supported checks reuse the same requested profile snapshot. These settings store no personal goals or preferences.",
+    "inputSchema": {
+      "type": "object",
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "player": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 36,
+          "description": "Minecraft username or UUID. Do not provide URLs."
+        },
+        "profile": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z ]{0,31}$"
+        },
+        "operation": {
+          "type": "string",
+          "enum": [
+            "set",
+            "list",
+            "remove"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9_-]{1,48}$"
+        },
+        "target": {
+          "type": "string",
+          "enum": [
+            "hotm_bonus_commissions",
+            "currencies",
+            "stats",
+            "skills",
+            "mining",
+            "dailies"
+          ]
+        },
+        "cadence": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "daily_utc"
+                },
+                "timeUtc": {
+                  "type": "string",
+                  "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+                }
+              },
+              "required": [
+                "kind",
+                "timeUtc"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "once"
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                }
+              },
+              "required": [
+                "kind",
+                "at"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "hotm_reset_reference"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "required": [
+        "player",
+        "profile",
+        "operation"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false
+    },
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {}
+    }
+  },
+  {
+    "name": "skyblock_profile_context",
+    "title": "SkyBlock profile overview",
+    "description": "Read a compact SkyBlock progression overview, with optional separately sourced client observations: capped skills, coins, API-reported cookie status and potion-effect coverage, slayers, Catacombs levels and next floor level gates, active pet levels and XP progress, equipped gear, calculated magical power, Garden and coverage. Garden has its own snapshot timestamp. Read factual progression; inspect calculation status, caps, timestamps and warnings. Default cached reads never refresh existing player snapshots; use snapshot only for an explicit occasional API check. Live API polling is rejected. Does not perform gameplay or track player histories.",
+    "inputSchema": {
+      "type": "object",
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "player": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 36,
+          "description": "Minecraft username or UUID. Do not provide URLs."
+        },
+        "profile": {
+          "description": "Exact profile name, such as Strawberry, or profile UUID. Omit to use the selected profile when unambiguous.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 36
+        },
+        "mode": {
+          "default": "cached",
+          "description": "cached reads the existing snapshot without refresh. snapshot explicitly permits an on-demand API check. live is rejected; use skyblock_live_context.",
+          "type": "string",
+          "enum": [
+            "cached",
+            "snapshot",
+            "live"
+          ]
+        }
+      },
+      "required": [
+        "player"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true
+    },
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "metadata": {
+          "type": "object",
+          "properties": {
+            "schemaVersion": {
+              "type": "string",
+              "const": "1.0"
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "hypixel",
+                "synthetic_demo"
+              ]
+            },
+            "retrievedAt": {
+              "type": "string"
+            },
+            "ageSeconds": {
+              "type": "number",
+              "minimum": 0
+            },
+            "cache": {
+              "type": "string",
+              "enum": [
+                "fresh",
+                "miss",
+                "stale"
+              ]
+            },
+            "stale": {
+              "type": "boolean"
+            },
+            "freshnessPolicy": {
+              "type": "object",
+              "properties": {
+                "refreshAfterSeconds": {
+                  "type": "number"
+                },
+                "maximumSnapshotAgeSeconds": {
+                  "type": "number"
+                },
+                "refreshOnlyOnRequest": {
+                  "type": "boolean",
+                  "const": true
+                },
+                "livePollingAllowed": {
+                  "type": "boolean",
+                  "const": false
+                }
+              },
+              "required": [
+                "refreshAfterSeconds",
+                "maximumSnapshotAgeSeconds",
+                "refreshOnlyOnRequest",
+                "livePollingAllowed"
+              ],
+              "additionalProperties": false
+            },
+            "upstreamFreshness": {
+              "type": "string"
+            },
+            "warnings": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "source",
+            "retrievedAt",
+            "ageSeconds",
+            "cache",
+            "stale",
+            "freshnessPolicy",
+            "upstreamFreshness",
+            "warnings"
+          ],
+          "additionalProperties": false
+        },
+        "scheduledChecks": {
+          "maxItems": 16,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "player": {
+          "type": "object",
+          "properties": {
+            "uuid": {
+              "type": "string"
+            },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "uuid",
+            "name"
+          ],
+          "additionalProperties": false
+        },
+        "profile": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "selected": {
+              "type": "boolean"
+            },
+            "gameMode": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "selected",
+            "gameMode"
+          ],
+          "additionalProperties": false
+        },
+        "availableProfiles": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "selected": {
+                "type": "boolean"
+              },
+              "gameMode": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "selected",
+              "gameMode"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "coverage": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "enum": [
+              "available",
+              "partial",
+              "unavailable"
+            ]
+          }
+        },
+        "summary": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {}
+        }
+      },
+      "required": [
+        "metadata",
+        "player",
+        "profile",
+        "availableProfiles",
+        "coverage",
+        "summary"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "skyblock_profile_section",
+    "title": "SkyBlock profile section",
+    "description": "Read one detailed section, with optional separately sourced client observations for stats, currencies, equipment, minions and Garden: stats (API-reported Booster Cookie status, active/paused potion effects and coverage; dedicated God Potion status and cookie/God Potion timers remain unknown in the API; separately sourced client observations may provide displayed values), skills, currencies, slayers, dungeons (effective levels, XP progress and next normal floor level gate), pets (calculated levels and progress to their species cap, including level 200 dragons), collections, minions, equipment (gear, modern armor/equipment loadout sets, storage, backpacks by container, sacks and partial Huntaxe stored-weapon name/stars from item lore, expanded upgrade attributes, stable hashed item instance IDs and fieldCoverage reasons), accessories (calculated magical power, duplicates, upgrades, bonuses, power and tuning), garden (milestones, crops, plots, visitors, composter and player-specific Greenhouse discovered/analyzed mutations), mining (HotM XP/tier/tree, reported powder counters and forge evidence), foraging (HotF XP/tier/tree and whispers), hunting (shards, traps and attribute evidence), dailies (reported activity evidence; unverified resets/completions stay unknown), quests (objectives, unlocks and Guide evidence), rift, crimson_isle, chocolate_factory, and systems (factual coverage registry). New systems are partial: pinned node definitions and supported costs/effects are provided; unsupported formulas, effective attribute levels and undocumented balances stay unknown. No stored goals, preferences, recommendation engine or player history. Additional sections fishing, bestiary, travel, profile_upgrades, events, orders, museum, storage, api_fields and data_contract retain source facts and explicit unknown semantics. Default cached reads never refresh existing player snapshots; request snapshot mode only for an occasional explicit API check. Lists are paginated; inspect pagination and request more offsets. Potion duration ticks are saved API values, not a live countdown. Garden and Greenhouse have distinct snapshot sources. Missing backpacks or mutation lists are unknown. No live Greenhouse growth simulation. Minions report crafted unlocks. Does not perform gameplay or track histories.",
+    "inputSchema": {
+      "type": "object",
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "player": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 36,
+          "description": "Minecraft username or UUID. Do not provide URLs."
+        },
+        "profile": {
+          "description": "Exact profile name, such as Strawberry, or profile UUID. Omit to use the selected profile when unambiguous.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 36
+        },
+        "section": {
+          "type": "string",
+          "enum": [
+            "stats",
+            "skills",
+            "currencies",
+            "slayers",
+            "dungeons",
+            "pets",
+            "collections",
+            "minions",
+            "equipment",
+            "accessories",
+            "garden",
+            "mining",
+            "foraging",
+            "hunting",
+            "dailies",
+            "quests",
+            "rift",
+            "crimson_isle",
+            "chocolate_factory",
+            "fishing",
+            "bestiary",
+            "travel",
+            "profile_upgrades",
+            "events",
+            "orders",
+            "museum",
+            "api_fields",
+            "storage",
+            "data_contract",
+            "systems"
+          ]
+        },
+        "mode": {
+          "default": "cached",
+          "description": "cached never refreshes an existing player snapshot; snapshot explicitly requests an occasional on-demand check; live is rejected.",
+          "type": "string",
+          "enum": [
+            "cached",
+            "snapshot",
+            "live"
+          ]
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 50000
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      },
+      "required": [
+        "player",
+        "section"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true
+    },
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "metadata": {
+          "type": "object",
+          "properties": {
+            "schemaVersion": {
+              "type": "string",
+              "const": "1.0"
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "hypixel",
+                "synthetic_demo"
+              ]
+            },
+            "retrievedAt": {
+              "type": "string"
+            },
+            "ageSeconds": {
+              "type": "number",
+              "minimum": 0
+            },
+            "cache": {
+              "type": "string",
+              "enum": [
+                "fresh",
+                "miss",
+                "stale"
+              ]
+            },
+            "stale": {
+              "type": "boolean"
+            },
+            "freshnessPolicy": {
+              "type": "object",
+              "properties": {
+                "refreshAfterSeconds": {
+                  "type": "number"
+                },
+                "maximumSnapshotAgeSeconds": {
+                  "type": "number"
+                },
+                "refreshOnlyOnRequest": {
+                  "type": "boolean",
+                  "const": true
+                },
+                "livePollingAllowed": {
+                  "type": "boolean",
+                  "const": false
+                }
+              },
+              "required": [
+                "refreshAfterSeconds",
+                "maximumSnapshotAgeSeconds",
+                "refreshOnlyOnRequest",
+                "livePollingAllowed"
+              ],
+              "additionalProperties": false
+            },
+            "upstreamFreshness": {
+              "type": "string"
+            },
+            "warnings": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "source",
+            "retrievedAt",
+            "ageSeconds",
+            "cache",
+            "stale",
+            "freshnessPolicy",
+            "upstreamFreshness",
+            "warnings"
+          ],
+          "additionalProperties": false
+        },
+        "scheduledChecks": {
+          "maxItems": 16,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "player": {
+          "type": "object",
+          "properties": {
+            "uuid": {
+              "type": "string"
+            },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "uuid",
+            "name"
+          ],
+          "additionalProperties": false
+        },
+        "profile": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "selected": {
+              "type": "boolean"
+            },
+            "gameMode": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "selected",
+            "gameMode"
+          ],
+          "additionalProperties": false
+        },
+        "availableProfiles": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "selected": {
+                "type": "boolean"
+              },
+              "gameMode": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "selected",
+              "gameMode"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "section": {
+          "type": "string",
+          "enum": [
+            "stats",
+            "skills",
+            "currencies",
+            "slayers",
+            "dungeons",
+            "pets",
+            "collections",
+            "minions",
+            "equipment",
+            "accessories",
+            "garden",
+            "mining",
+            "foraging",
+            "hunting",
+            "dailies",
+            "quests",
+            "rift",
+            "crimson_isle",
+            "chocolate_factory",
+            "fishing",
+            "bestiary",
+            "travel",
+            "profile_upgrades",
+            "events",
+            "orders",
+            "museum",
+            "api_fields",
+            "storage",
+            "data_contract",
+            "systems"
+          ]
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": [
+                "available",
+                "partial",
+                "unavailable"
+              ]
+            },
+            "data": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {}
+            },
+            "warnings": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "status",
+            "data",
+            "warnings"
+          ],
+          "additionalProperties": false
+        },
+        "pagination": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "offset": {
+                "type": "number"
+              },
+              "limit": {
+                "type": "number"
+              },
+              "total": {
+                "type": "number"
+              },
+              "returned": {
+                "type": "number"
+              },
+              "hasMore": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "offset",
+              "limit",
+              "total",
+              "returned",
+              "hasMore"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "metadata",
+        "player",
+        "profile",
+        "availableProfiles",
+        "section",
+        "result",
+        "pagination"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "skyblock_client_context",
+    "title": "SkyBlock client observations",
+    "description": "Read owner-only latest snapshots from the optional passive client collector: an absorbed Huntaxe weapon and upgrades, separately classified bank balances, Cookie/God Potion remaining time when displayed, viewed storage/toolkit, minion and Garden menus. These are client observations, not Hypixel API data. Inspect source, timestamps, stale flags and partial coverage; timers are saved observations, not a live countdown. Current player inventory and selected tab facts are captured passively; server-unsent menu data requires manually opened supported menus; inventory item attributes and owner HUD/state are collected without opening menus. Mining, foraging, Hunting, experiments, pets, collections, accessories and quest menus provide selected typed numeric observations with partial coverage. This tool works without API access and never controls the game or requests data from Hypixel. Empty or unviewed storage remains unknown.",
+    "inputSchema": {
+      "type": "object",
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "player": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 36,
+          "description": "Minecraft username or UUID. Do not provide URLs."
+        },
+        "profile": {
+          "description": "Exact profile name displayed in the game, not a profile UUID.",
+          "type": "string",
+          "maxLength": 32
+        },
+        "section": {
+          "type": "string",
+          "enum": [
+            "stats",
+            "skills",
+            "currencies",
+            "slayers",
+            "dungeons",
+            "pets",
+            "collections",
+            "minions",
+            "equipment",
+            "accessories",
+            "garden",
+            "mining",
+            "foraging",
+            "hunting",
+            "dailies",
+            "quests",
+            "rift",
+            "crimson_isle",
+            "chocolate_factory",
+            "fishing",
+            "bestiary",
+            "travel",
+            "profile_upgrades",
+            "events",
+            "orders",
+            "museum",
+            "api_fields",
+            "storage",
+            "data_contract",
+            "systems"
+          ]
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 50000
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      },
+      "required": [
+        "player"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true
+    },
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {}
+    }
+  },
+  {
+    "name": "skyblock_live_context",
+    "title": "Live SkyBlock client context",
+    "description": "Poll fresh passive owner game observations without any Hypixel or Mojang API requests. Reads current inventory, selected item structured attributes, owner Minecraft state/effects and displayed sidebar/action bar/tab stats. Distinguishes Minecraft stats from SkyBlock stats. Supported open menus add current observations; closed menus and disconnected or old exports are excluded. Never fetches menus, sends packets, controls gameplay or falls back to API. Server-unsent data remains unavailable. Poll at most once per second; inspect exportedAt, observedAt, currentStateVerified and coverage.",
+    "inputSchema": {
+      "type": "object",
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "player": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 36,
+          "description": "Minecraft username or UUID. Do not provide URLs."
+        },
+        "profile": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "section": {
+          "type": "string",
+          "enum": [
+            "stats",
+            "skills",
+            "currencies",
+            "slayers",
+            "dungeons",
+            "pets",
+            "collections",
+            "minions",
+            "equipment",
+            "accessories",
+            "garden",
+            "mining",
+            "foraging",
+            "hunting",
+            "dailies",
+            "quests",
+            "rift",
+            "crimson_isle",
+            "chocolate_factory",
+            "fishing",
+            "bestiary",
+            "travel",
+            "profile_upgrades",
+            "events",
+            "orders",
+            "museum",
+            "api_fields",
+            "storage",
+            "data_contract",
+            "systems"
+          ]
+        },
+        "maxAgeSeconds": {
+          "default": 10,
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 300
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 50000
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      },
+      "required": [
+        "player"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true
+    },
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {}
+    }
+  },
+  {
+    "name": "skyblock_reference",
+    "title": "SkyBlock public resource definitions",
+    "description": "Read official public collection tiers/unlocks, skill curves, full item definitions and requirements, mayor/election, Bingo, news, fire sales or recent ended auctions. Fixed endpoints, no authenticated player requests. Field paths, types, values and explicit truncation/omission coverage are paginated. Undocumented units and semantics remain unverified. Ended auctions are reported completed sales, distinct from active BIN asking prices. No private keys or player identities are exposed.",
+    "inputSchema": {
+      "type": "object",
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "collections",
+            "skills",
+            "items",
+            "election",
+            "bingo",
+            "news",
+            "fire_sales",
+            "ended_auctions"
+          ]
+        },
+        "itemId": {
+          "type": "string",
+          "pattern": "^[A-Z0-9_:.-]{1,96}$"
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 50000
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true
+    },
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {}
+    }
+  },
+  {
+    "name": "skyblock_market_quote",
+    "title": "SkyBlock market quote",
+    "description": "Read current Bazaar instant-buy and instant-sell quotes for an exact item ID and quantity, using visible order-book depth. Includes weighted summary prices, volume and official NPC sell value when known. Check upstream timestamp, incomplete depth and stale flags. Gross SkyBlock coins exclude taxes and fees. Auction variants and net worth are not valued. Does not trade, spend coins or perform gameplay.",
+    "inputSchema": {
+      "type": "object",
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "item": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_:.-]{1,96}$",
+          "description": "Exact Bazaar/Hypixel item ID, for example WHEAT or ENCHANTED_DIAMOND. Do not provide URLs."
+        },
+        "quantity": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000
+        }
+      },
+      "required": [
+        "item"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true
+    },
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "metadata": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {}
+        },
+        "item": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "name"
+          ],
+          "additionalProperties": false
+        },
+        "quantity": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "currency": {
+          "type": "string",
+          "const": "SkyBlock coins"
+        },
+        "feesIncluded": {
+          "type": "boolean",
+          "const": false
+        },
+        "bazaar": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {}
+        },
+        "npcSell": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {}
+        },
+        "auctionPrice": {
+          "type": "null"
+        },
+        "auctionCoverage": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "metadata",
+        "item",
+        "quantity",
+        "currency",
+        "feesIncluded",
+        "bazaar",
+        "npcSell",
+        "auctionPrice",
+        "auctionCoverage"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "skyblock_auction_quote",
+    "title": "SkyBlock auction quote",
+    "description": "Read active BIN asking prices for an exact Hypixel item ID, optionally filtered by rarity, reforge, stars, exact ability scroll set (Wither blades), or petType and exact calculated petLevel (item PET). Scans and caches public auction pages only on request, with a bounded first-call delay. Check complete/partial page coverage, timestamps and stale flags. Partial coverage has only lowestObservedBinCoins; lowestBinCoins remains unknown. Prices exclude fees and are not completed sales, net worth or a valuation of an owned item. Listings expose scrolls, pet level/XP, pet rarity, held item and skin. Unreadable filtered variants make coverage partial. Fully scrolled or level-200 does not mean all other upgrades are maxed. Enchantments, attributes, skins and other variants can differ. Does not trade or perform gameplay.",
+    "inputSchema": {
+      "type": "object",
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "item": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_:.-]{1,96}$"
+        },
+        "rarity": {
+          "type": "string",
+          "enum": [
+            "COMMON",
+            "UNCOMMON",
+            "RARE",
+            "EPIC",
+            "LEGENDARY",
+            "MYTHIC",
+            "DIVINE",
+            "SPECIAL",
+            "VERY_SPECIAL"
+          ]
+        },
+        "reforge": {
+          "type": "string",
+          "pattern": "^[a-z0-9_]{1,64}$"
+        },
+        "stars": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 15
+        },
+        "petType": {
+          "type": "string",
+          "pattern": "^[A-Z0-9_]{1,64}$"
+        },
+        "petLevel": {
+          "description": "Exact integer pet level, calculated using petInfo rarity and XP, for item PET.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200
+        },
+        "scrolls": {
+          "description": "Exact installed scroll set. All three selects fully scrolled Wither blades; an empty array selects unscrolled blades.",
+          "maxItems": 3,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "IMPLOSION_SCROLL",
+              "SHADOW_WARP_SCROLL",
+              "WITHER_SHIELD_SCROLL"
+            ]
+          }
+        }
+      },
+      "required": [
+        "item"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true
+    },
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "metadata": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {}
+        },
+        "item": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "filters": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {}
+        },
+        "currency": {
+          "type": "string",
+          "const": "SkyBlock coins"
+        },
+        "feesIncluded": {
+          "type": "boolean",
+          "const": false
+        },
+        "priceKind": {
+          "type": "string",
+          "const": "active_bin_asking_price"
+        },
+        "coverage": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {}
+        },
+        "matchedListingCount": {
+          "type": "number"
+        },
+        "lowestBinCoins": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "lowestObservedBinCoins": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "lowestUnitCoins": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "listings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        }
+      },
+      "required": [
+        "metadata",
+        "item",
+        "filters",
+        "currency",
+        "feesIncluded",
+        "priceKind",
+        "coverage",
+        "matchedListingCount",
+        "lowestBinCoins",
+        "lowestObservedBinCoins",
+        "lowestUnitCoins",
+        "listings"
+      ],
+      "additionalProperties": false
+    }
+  }
+]
