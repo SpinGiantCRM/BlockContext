@@ -1,4 +1,4 @@
-use crate::types::*;
+use crate::{diagnostics::Diagnostics, types::*};
 use futures::{
     FutureExt,
     future::{BoxFuture, Shared},
@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 use std::{
     collections::HashMap,
     path::Path,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, OnceLock},
 };
 
 #[derive(Clone, Debug)]
@@ -24,6 +24,7 @@ pub struct Cache {
     flights: Mutex<HashMap<String, Flight>>,
     failures: Mutex<HashMap<String, (i64, AppError)>>,
     clock: Arc<dyn Fn() -> i64 + Send + Sync>,
+    diagnostics: OnceLock<Arc<Diagnostics>>,
 }
 fn db_error(_: rusqlite::Error) -> AppError {
     AppError::new(
@@ -68,12 +69,17 @@ impl Cache {
             flights: Mutex::new(HashMap::new()),
             failures: Mutex::new(HashMap::new()),
             clock,
+            diagnostics: OnceLock::new(),
         }))
     }
     pub fn time(&self) -> i64 {
         (self.clock)()
     }
+    pub fn set_diagnostics(&self, diagnostics: Arc<Diagnostics>) {
+        let _ = self.diagnostics.set(diagnostics);
+    }
     pub fn peek(&self, key: &str, max_age: i64) -> Option<Cached> {
+        let _span = self.diagnostics.get().map(|d| d.span("cache_read"));
         let db = self.db.lock().ok()?;
         let row: Option<(String, i64)> = db
             .query_row(
@@ -112,10 +118,11 @@ impl Cache {
                 .map_err(db_error)?;
         }
         let existing = self.peek(&key, max_age);
-        if let Some(c) = &existing
-            && time - c.fetched_at < fresh
+        if existing
+            .as_ref()
+            .is_some_and(|c| time - c.fetched_at < fresh)
         {
-            let mut c = c.clone();
+            let mut c = existing.expect("Fresh cache entry checked above");
             c.cache = "fresh";
             return Ok(c);
         }
@@ -134,6 +141,7 @@ impl Cache {
                 let future=async move {
     let result=async {let value=load.await?;let fetched_at=if use_snapshot_time{let retrieved=value.get("retrievedAt").and_then(Value::as_i64).ok_or_else(||AppError::new("SNAPSHOT_EXPIRED","Missing snapshot time."))?;value.get("updatedAt").and_then(Value::as_i64).map(|t|t.min(retrieved)).unwrap_or(retrieved)}else{this.time()};
      if fetched_at>this.time()||this.time()-fetched_at>=max_age{return Err(AppError::retry("SNAPSHOT_EXPIRED","The snapshot expired while being prepared.",15))}
+     let _write_span=this.diagnostics.get().map(|d|d.span("cache_write"));
      let s=serde_json::to_string(&value).map_err(|_|AppError::new("CACHE_INVALID","Invalid snapshot."))?;if s.len()>8*1024*1024{return Err(AppError::new("RESPONSE_TOO_LARGE","The normalized snapshot exceeded its storage limit."))}
      {let db=this.db.lock().unwrap();db.execute("INSERT INTO cache(key,value,fetched_at,expires_at) VALUES(?,?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,fetched_at=excluded.fetched_at,expires_at=excluded.expires_at",params![k,s,fetched_at,fetched_at+max_age]).map_err(db_error)?;db.execute("DELETE FROM cache WHERE key IN (SELECT key FROM cache ORDER BY fetched_at DESC,key LIMIT -1 OFFSET 512)",[]).map_err(db_error)?;}
      this.failures.lock().unwrap().remove(&k);Ok(Cached{value,fetched_at,cache:"miss",warning:None})

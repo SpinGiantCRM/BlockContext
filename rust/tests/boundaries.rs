@@ -446,3 +446,53 @@ fn typed_client_objects_keep_contract_order_for_field_pagination() {
         vec!["first", "second"]
     );
 }
+
+#[test]
+fn native_diagnostics_record_bounded_stages_and_runtime_without_inputs() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("usage.jsonl");
+    let diag = Diagnostics::new(Some(path.clone()));
+    {
+        let _span = diag.span("cache_read");
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    {
+        let _span = diag.span("untrusted-player-or-key");
+    }
+    diag.resource();
+    let text = std::fs::read_to_string(path).unwrap();
+    assert!(!text.contains("untrusted-player-or-key"));
+    let rows = text
+        .lines()
+        .map(|s| serde_json::from_str::<serde_json::Value>(s).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(rows.len(), 2);
+    for row in &rows {
+        assert_eq!(row["schema"], 2);
+        assert_eq!(row["runtime"], "rust");
+        assert!(row["processStartedAt"].is_string());
+        assert_eq!(row["runtimeVersion"], env!("CARGO_PKG_VERSION"));
+    }
+    assert_eq!(rows[0]["stage"], "cache_read");
+    assert!(rows[0]["durationsMs"][0].as_f64().unwrap() > 0.);
+}
+
+#[test]
+fn stage_sampling_is_bounded_and_reports_omitted_measurements() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("usage.jsonl");
+    let diag = Diagnostics::new(Some(path.clone()));
+    for _ in 0..1500 {
+        let _span = diag.span("cache_read");
+    }
+    assert!(
+        !path.exists(),
+        "Stage sampling must not write on the request path"
+    );
+    diag.resource();
+    let text = std::fs::read_to_string(path).unwrap();
+    let row: serde_json::Value = serde_json::from_str(text.lines().next().unwrap()).unwrap();
+    assert_eq!(row["calls"], 1500);
+    assert_eq!(row["omittedSamples"], 476);
+    assert_eq!(row["durationsMs"].as_array().unwrap().len(), 1024);
+}

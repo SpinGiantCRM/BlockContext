@@ -21,6 +21,7 @@ pub struct Service {
 }
 impl Service {
     pub fn new(upstream: Arc<Upstream>, cache: Arc<Cache>, client: Client) -> Arc<Self> {
+        cache.set_diagnostics(upstream.diagnostics.clone());
         Arc::new(Self {
             upstream,
             cache,
@@ -43,6 +44,7 @@ impl Service {
         offset: usize,
         limit: usize,
     ) -> Result<Value> {
+        let _span = self.upstream.diagnostics.span("client_read");
         self.client.query(
             player,
             profile,
@@ -381,7 +383,9 @@ impl Service {
                     let permit = this.cpu.clone().acquire_owned().await.map_err(|_| {
                         AppError::new("INTERNAL_ERROR", "Decoder pool is unavailable.")
                     })?;
+                    let diagnostics = this.upstream.diagnostics.clone();
                     let profiles = tokio::task::spawn_blocking(move || {
+                        let _span = diagnostics.span("profile_normalize");
                         let _permit = permit;
                         arr(&raw)
                             .iter()
@@ -411,7 +415,10 @@ impl Service {
                 mode,
             )
             .await?;
-        let profiles = arr(&result.value["profiles"]);
+        let profiles = result.value["profiles"]
+            .as_array()
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
         if profiles.is_empty() {
             return Err(AppError::new(
                 "NO_SKYBLOCK_PROFILES",
@@ -632,7 +639,7 @@ fn profile_info(p: &Value) -> Value {
     json!({"id":p["id"],"name":p["name"],"selected":p["selected"],"gameMode":p["gameMode"]})
 }
 fn slice(value: &Value, path: &str, offset: usize, limit: usize, pagination: &mut Value) -> Value {
-    let all = arr(value);
+    let all = value.as_array().map(Vec::as_slice).unwrap_or(&[]);
     let result = all
         .iter()
         .skip(offset)

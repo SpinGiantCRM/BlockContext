@@ -165,7 +165,14 @@ impl ServerHandler for Server {
         let section = args["section"].as_str().map(str::to_owned);
         match self.execute(&request.name, args).await {
             Ok(data) => {
-                let serialized = data.to_string();
+                let serialized = {
+                    let _span = self
+                        .service
+                        .upstream
+                        .diagnostics
+                        .span("rpc_payload_serialize");
+                    data.to_string()
+                };
                 self.service.upstream.diagnostics.tool(
                     &request.name,
                     started.elapsed().as_secs_f64() * 1000.,

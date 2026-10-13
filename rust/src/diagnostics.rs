@@ -40,11 +40,54 @@ struct State {
     last_failure: i64,
     last_cleanup: i64,
     file_started: Option<i64>,
+    stages: std::collections::BTreeMap<&'static str, StageSamples>,
+}
+#[derive(Default)]
+struct StageSamples {
+    values: Vec<f64>,
+    calls: u64,
+    total: f64,
+    maximum: f64,
+}
+pub const STAGES: &[&str] = &[
+    "cache_read",
+    "cache_write",
+    "profile_normalize",
+    "client_read",
+    "rpc_payload_serialize",
+];
+fn duration(ms: f64) -> f64 {
+    if ms.is_finite() {
+        (ms.clamp(0., 1e9) * 1000.).round() / 1000.
+    } else {
+        0.
+    }
+}
+pub struct Span<'a> {
+    diagnostics: &'a Diagnostics,
+    name: &'static str,
+    started: Option<Instant>,
+}
+impl Drop for Span<'_> {
+    fn drop(&mut self) {
+        if let Some(started) = self.started {
+            let mut state = self.diagnostics.state.lock().unwrap();
+            let samples = state.stages.entry(self.name).or_default();
+            let ms = duration(started.elapsed().as_secs_f64() * 1000.);
+            samples.calls += 1;
+            samples.total += ms;
+            samples.maximum = samples.maximum.max(ms);
+            if samples.values.len() < 1024 {
+                samples.values.push(ms);
+            }
+        }
+    }
 }
 pub struct Diagnostics {
     path: Option<PathBuf>,
     state: Mutex<State>,
     started: Instant,
+    started_at: i64,
 }
 impl Diagnostics {
     pub fn new(path: Option<PathBuf>) -> Self {
@@ -52,6 +95,21 @@ impl Diagnostics {
             path,
             state: Mutex::new(State::default()),
             started: Instant::now(),
+            started_at: now(),
+        }
+    }
+    pub fn span(&self, name: &'static str) -> Span<'_> {
+        Span {
+            diagnostics: self,
+            name,
+            started: (self.path.is_some() && STAGES.contains(&name)).then(Instant::now),
+        }
+    }
+    fn flush_stages(&self) {
+        let stages = std::mem::take(&mut self.state.lock().unwrap().stages);
+        for (name, samples) in stages {
+            let omitted = samples.calls.saturating_sub(samples.values.len() as u64);
+            self.emit("stage", json!({"stage":name,"durationsMs":samples.values,"calls":samples.calls,"totalDurationMs":duration(samples.total),"maximumDurationMs":samples.maximum,"omittedSamples":omitted}));
         }
     }
     fn emit(&self, event: &str, fields: Value) {
@@ -98,7 +156,7 @@ impl Diagnostics {
                 state.last_cleanup = t;
             }
             let line =
-                merge(json!({"schema":1,"time":iso(t),"event":event}), fields).to_string() + "\n";
+                merge(json!({"schema":2,"time":iso(t),"event":event,"runtime":"rust","runtimeVersion":env!("CARGO_PKG_VERSION"),"processStartedAt":iso(self.started_at)}), fields).to_string() + "\n";
             let info = match std::fs::symlink_metadata(path) {
                 Ok(info) => {
                     if !info.is_file() {
@@ -214,7 +272,7 @@ impl Diagnostics {
             reasons.push("invalid_listings")
         }
         let count = |v: &Value| n(v).map(|n| n.round().clamp(0., 1e9));
-        let mut row = json!({"tool":TOOLS.contains(&name).then_some(name),"section":section.filter(|s|SECTIONS.contains(s)),"durationMs":ms.round().clamp(0.,1e9),"outcome":if error.is_some(){"error"}else{"ok"},"errorCode":error.map(|e|safe_code(&e.code)),"retryAfterSeconds":error.and_then(|e|e.retry_after_seconds),"cache":metadata["cache"].as_str().filter(|s|["fresh","miss","stale"].contains(s)),"snapshotAgeSeconds":count(&metadata["ageSeconds"]),"warningCount":arr(&metadata["warnings"]).len(),"responseBytes":bytes,"sectionStatus":at(data,"result.status").as_str().filter(|s|["available","partial","unavailable"].contains(s)),"auctionCoverage":coverage["status"].as_str().filter(|s|["complete","partial"].contains(s)),"auctionReasons":reasons});
+        let mut row = json!({"tool":TOOLS.contains(&name).then_some(name),"section":section.filter(|s|SECTIONS.contains(s)),"durationMs":duration(ms),"outcome":if error.is_some(){"error"}else{"ok"},"errorCode":error.map(|e|safe_code(&e.code)),"retryAfterSeconds":error.and_then(|e|e.retry_after_seconds),"cache":metadata["cache"].as_str().filter(|s|["fresh","miss","stale"].contains(s)),"snapshotAgeSeconds":count(&metadata["ageSeconds"]),"warningCount":arr(&metadata["warnings"]).len(),"responseBytes":bytes,"sectionStatus":at(data,"result.status").as_str().filter(|s|["available","partial","unavailable"].contains(s)),"auctionCoverage":coverage["status"].as_str().filter(|s|["complete","partial"].contains(s)),"auctionReasons":reasons});
         for (src, dest) in [
             ("scannedPages", "scannedPages"),
             ("totalPages", "totalPages"),
@@ -227,6 +285,17 @@ impl Diagnostics {
         ] {
             row[dest] = json!(count(&coverage[src]));
         }
+        row["workload"] = json!(if name == "skyblock_client_context"
+            || name == "skyblock_live_context"
+        {
+            "client_snapshot"
+        } else {
+            match metadata["source"].as_str() {
+                Some("synthetic_demo") => "synthetic_demo",
+                Some("hypixel") => "api_snapshot",
+                _ => "unknown",
+            }
+        });
         self.emit("tool", row)
     }
     pub fn upstream(
@@ -237,15 +306,22 @@ impl Diagnostics {
         error: Option<&AppError>,
         remaining: Option<u64>,
     ) {
-        self.emit("upstream",json!({"endpoint":ENDPOINTS.contains(&endpoint).then_some(endpoint),"durationMs":ms.round().clamp(0.,1e9),"httpStatus":status,"outcome":if error.is_some(){"error"}else{"ok"},"errorCode":error.map(|e|safe_code(&e.code)),"remainingRequests":remaining}))
+        self.emit("upstream",json!({"endpoint":ENDPOINTS.contains(&endpoint).then_some(endpoint),"durationMs":duration(ms),"httpStatus":status,"outcome":if error.is_some(){"error"}else{"ok"},"errorCode":error.map(|e|safe_code(&e.code)),"remainingRequests":remaining}))
     }
     pub fn http(&self, status: u16, ms: f64, active: usize) {
-        self.emit("http",json!({"httpStatus":status,"durationMs":ms.round().clamp(0.,1e9),"activeRequests":active}))
+        self.emit(
+            "http",
+            json!({"httpStatus":status,"durationMs":duration(ms),"activeRequests":active}),
+        )
     }
     pub fn lifecycle(&self, state: &str, mode: &str, transport: &str) {
+        if state == "stopping" {
+            self.flush_stages();
+        }
         self.emit("lifecycle",json!({"state":if ["started","stopping"].contains(&state){Some(state)}else{None},"mode":if ["demo","live"].contains(&mode){Some(mode)}else{None},"transport":if ["http","stdio"].contains(&transport){Some(transport)}else{None}}))
     }
     pub fn resource(&self) {
+        self.flush_stages();
         #[cfg(target_os = "linux")]
         let rss: Option<u64> =
             std::fs::read_to_string("/proc/self/status")
