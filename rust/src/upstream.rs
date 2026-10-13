@@ -71,23 +71,27 @@ impl Upstream {
     pub async fn get(&self, url: &str, authenticated: bool, endpoint: &str) -> Result<Value> {
         let start = Instant::now();
         let mut status = None;
+        let budget_wait = self.diagnostics.span("upstream_budget_wait");
         let mut guard = if authenticated {
             Some(self.budget.lock().await)
         } else {
             None
         };
+        drop(budget_wait);
         let result=async{
  if let Some(budget)=guard.as_mut(){let t=now();if self.key.is_empty(){return Err(AppError::new("HYPIXEL_KEY_REQUIRED","Set HYPIXEL_API_KEY privately in the local .env file to enable API snapshots."))}
 if self.expires.is_some_and(|expiry|t>=expiry){return Err(AppError::new("HYPIXEL_KEY_EXPIRED","The configured Hypixel development key has expired. Replace it privately in the local .env file."))}budget.calls.retain(|n|t-*n<300000);if t>=budget.reset_at{budget.remaining=None}
 if budget.blocked_until>t||budget.calls.len()>=self.limit||budget.remaining.is_some_and(|n|n<=2){let retry=budget.blocked_until.max(if budget.calls.len()>=self.limit{budget.calls[0]+300000}else{t}).max(if budget.remaining.is_some_and(|n|n<=2){budget.reset_at}else{t});return Err(AppError::retry("RATE_LIMITED","Hypixel request budget is reserved or temporarily exhausted. Try again later.",((retry-t+999)/1000).max(1)as u64))}budget.calls.push(t);}
  let mut request=self.http.get(url);if authenticated{request=request.header("API-Key",&self.key)}
-let mut response=request.send().await.map_err(|e|if e.is_timeout(){AppError::retry("UPSTREAM_TIMEOUT","The upstream request exceeded its time limit.",15)}else{AppError::retry("UPSTREAM_UNAVAILABLE","The upstream service could not be reached.",15)})?;let code=response.status().as_u16();status=Some(code);if let Some(budget)=guard.as_mut(){let header=|name:&str|response.headers().get(name).and_then(|v|v.to_str().ok()).filter(|s|re("^[0-9]+$",s)).and_then(|s|s.parse::<u64>().ok());if let Some(rem)=header("ratelimit-remaining"){budget.remaining=Some(rem)}budget.reset_at=header("ratelimit-reset").map(|n|now()+n.min(3600)as i64*1000).unwrap_or_else(||if budget.remaining.is_some(){now()+300000}else{budget.reset_at});}
+self.diagnostics.count("upstream_requests",1);let headers_span=self.diagnostics.span("upstream_headers");
+let mut response=request.send().await.map_err(|e|if e.is_timeout(){AppError::retry("UPSTREAM_TIMEOUT","The upstream request exceeded its time limit.",15)}else{AppError::retry("UPSTREAM_UNAVAILABLE","The upstream service could not be reached.",15)})?;drop(headers_span);let code=response.status().as_u16();status=Some(code);if let Some(budget)=guard.as_mut(){let header=|name:&str|response.headers().get(name).and_then(|v|v.to_str().ok()).filter(|s|re("^[0-9]+$",s)).and_then(|s|s.parse::<u64>().ok());if let Some(rem)=header("ratelimit-remaining"){budget.remaining=Some(rem)}budget.reset_at=header("ratelimit-reset").map(|n|now()+n.min(3600)as i64*1000).unwrap_or_else(||if budget.remaining.is_some(){now()+300000}else{budget.reset_at});}
  if code==429{let retry=response.headers().get("retry-after").and_then(|v|v.to_str().ok()).filter(|s|re("^[0-9]+$",s)).and_then(|s|s.parse::<u64>().ok()).unwrap_or(60).min(3600);if let Some(budget)=guard.as_mut(){budget.blocked_until=now()+retry as i64*1000;}return Err(AppError::retry("RATE_LIMITED","The upstream service is throttling requests.",retry))}
 if code==401||code==403{return Err(AppError::new("HYPIXEL_AUTH_FAILED","The upstream service rejected access. Check the application and key."))}
 if code==404||code==204{return Err(AppError::new("PLAYER_NOT_FOUND","No matching Minecraft player was found."))}
 if !response.status().is_success(){let mut e=AppError::new("UPSTREAM_UNAVAILABLE","The upstream service returned an unsuccessful response.");e.transient=code>=500;return Err(e)}
 if response.content_length().is_some_and(|n|n>12*1024*1024){return Err(AppError::new("UPSTREAM_TOO_LARGE","The upstream response exceeded the size limit."))}
-let mut blob=Vec::new();while let Some(chunk)=response.chunk().await.map_err(|e|if e.is_timeout(){AppError::retry("UPSTREAM_TIMEOUT","The upstream request exceeded its time limit.",15)}else{AppError::retry("UPSTREAM_UNAVAILABLE","The upstream response could not be read.",15)})?{if blob.len()+chunk.len()>12*1024*1024{return Err(AppError::new("UPSTREAM_TOO_LARGE","The upstream response exceeded the size limit."))}blob.extend_from_slice(&chunk);}
+let body_span=self.diagnostics.span("upstream_body");let mut blob=Vec::new();while let Some(chunk)=response.chunk().await.map_err(|e|if e.is_timeout(){AppError::retry("UPSTREAM_TIMEOUT","The upstream request exceeded its time limit.",15)}else{AppError::retry("UPSTREAM_UNAVAILABLE","The upstream response could not be read.",15)})?{if blob.len()+chunk.len()>12*1024*1024{return Err(AppError::new("UPSTREAM_TOO_LARGE","The upstream response exceeded the size limit."))}blob.extend_from_slice(&chunk);}
+drop(body_span);self.diagnostics.count("upstream_body_bytes",blob.len() as u64);let _json_span=self.diagnostics.span("upstream_json_parse");
 let data:Value=serde_json::from_slice(&blob).map_err(|_|AppError::retry("UPSTREAM_INVALID","The upstream response was not valid JSON.",15))?;if !data.is_object(){return Err(AppError::retry("UPSTREAM_INVALID","The upstream response was not a JSON object.",15))}
 if data["success"]==false{return Err(AppError::new("UPSTREAM_REJECTED","Hypixel rejected the request."))}Ok(data)}.await;
         self.diagnostics.upstream(

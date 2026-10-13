@@ -40,6 +40,7 @@ struct State {
     last_failure: i64,
     last_cleanup: i64,
     file_started: Option<i64>,
+    counters: std::collections::BTreeMap<&'static str, u64>,
     stages: std::collections::BTreeMap<&'static str, StageSamples>,
 }
 #[derive(Default)]
@@ -55,6 +56,28 @@ pub const STAGES: &[&str] = &[
     "profile_normalize",
     "client_read",
     "rpc_payload_serialize",
+    "cache_lock_wait",
+    "sqlite_read",
+    "sqlite_write",
+    "cache_json_parse",
+    "cache_json_serialize",
+    "cpu_queue_wait",
+    "worker_queue_wait",
+    "field_map",
+    "inventory_decode",
+    "gzip_expand",
+    "nbt_validate",
+    "nbt_parse",
+    "client_file_read",
+    "client_validate",
+    "upstream_budget_wait",
+    "upstream_headers",
+    "upstream_body",
+    "upstream_json_parse",
+    "auction_decode",
+    "bridge_project",
+    "bridge_ssh",
+    "resource_tick_lag",
 ];
 fn duration(ms: f64) -> f64 {
     if ms.is_finite() {
@@ -62,6 +85,76 @@ fn duration(ms: f64) -> f64 {
     } else {
         0.
     }
+}
+pub const COUNTERS: &[&str] = &[
+    "cache_hits",
+    "cache_misses",
+    "cache_shared_loads",
+    "cache_cooldowns",
+    "cache_stale_fallbacks",
+    "cache_expired_removed",
+    "cache_capacity_removed",
+    "cache_read_bytes",
+    "cache_write_bytes",
+    "upstream_requests",
+    "upstream_body_bytes",
+    "inventory_input_bytes",
+    "inventory_expanded_bytes",
+    "inventory_decode_failures",
+    "client_snapshot_bytes",
+    "bridge_unchanged",
+    "bridge_uploads",
+    "bridge_upload_bytes",
+    "bridge_upload_failures",
+    "bridge_snapshot_failures",
+    "bridge_waiting",
+];
+thread_local! { static CURRENT: std::cell::RefCell<Option<std::sync::Arc<Diagnostics>>> = const { std::cell::RefCell::new(None) }; }
+struct Restore(Option<std::sync::Arc<Diagnostics>>);
+impl Drop for Restore {
+    fn drop(&mut self) {
+        CURRENT.with(|v| {
+            *v.borrow_mut() = self.0.take();
+        });
+    }
+}
+/// Only synchronous work can use this scope; it never crosses an await boundary.
+pub fn scoped<T>(diagnostics: std::sync::Arc<Diagnostics>, work: impl FnOnce() -> T) -> T {
+    if diagnostics.path.is_none() {
+        return work();
+    }
+    let _restore = Restore(CURRENT.with(|v| v.replace(Some(diagnostics))));
+    work()
+}
+pub struct OwnedSpan {
+    diagnostics: std::sync::Arc<Diagnostics>,
+    name: &'static str,
+    started: Instant,
+}
+impl Drop for OwnedSpan {
+    fn drop(&mut self) {
+        self.diagnostics
+            .measure(self.name, self.started.elapsed().as_secs_f64() * 1000.);
+    }
+}
+pub fn current_span(name: &'static str) -> Option<OwnedSpan> {
+    CURRENT.with(|v| {
+        v.borrow()
+            .as_ref()
+            .filter(|_| STAGES.contains(&name))
+            .map(|d| OwnedSpan {
+                diagnostics: d.clone(),
+                name,
+                started: Instant::now(),
+            })
+    })
+}
+pub fn current_count(name: &'static str, amount: u64) {
+    CURRENT.with(|v| {
+        if let Some(d) = v.borrow().as_ref() {
+            d.count(name, amount);
+        }
+    });
 }
 pub struct Span<'a> {
     diagnostics: &'a Diagnostics,
@@ -71,15 +164,8 @@ pub struct Span<'a> {
 impl Drop for Span<'_> {
     fn drop(&mut self) {
         if let Some(started) = self.started {
-            let mut state = self.diagnostics.state.lock().unwrap();
-            let samples = state.stages.entry(self.name).or_default();
-            let ms = duration(started.elapsed().as_secs_f64() * 1000.);
-            samples.calls += 1;
-            samples.total += ms;
-            samples.maximum = samples.maximum.max(ms);
-            if samples.values.len() < 1024 {
-                samples.values.push(ms);
-            }
+            self.diagnostics
+                .measure(self.name, started.elapsed().as_secs_f64() * 1000.);
         }
     }
 }
@@ -88,6 +174,7 @@ pub struct Diagnostics {
     state: Mutex<State>,
     started: Instant,
     started_at: i64,
+    component: &'static str,
 }
 impl Diagnostics {
     pub fn new(path: Option<PathBuf>) -> Self {
@@ -96,7 +183,34 @@ impl Diagnostics {
             state: Mutex::new(State::default()),
             started: Instant::now(),
             started_at: now(),
+            component: "backend",
         }
+    }
+    pub fn for_bridge(mut self) -> Self {
+        self.component = "bridge";
+        self
+    }
+    pub fn measure(&self, name: &'static str, ms: f64) {
+        if self.path.is_none() || !STAGES.contains(&name) {
+            return;
+        }
+        let mut state = self.state.lock().unwrap();
+        let samples = state.stages.entry(name).or_default();
+        let ms = duration(ms);
+        samples.calls += 1;
+        samples.total += ms;
+        samples.maximum = samples.maximum.max(ms);
+        if samples.values.len() < 1024 {
+            samples.values.push(ms);
+        }
+    }
+    pub fn count(&self, name: &'static str, amount: u64) {
+        if self.path.is_none() || !COUNTERS.contains(&name) {
+            return;
+        }
+        let mut state = self.state.lock().unwrap();
+        let counter = state.counters.entry(name).or_default();
+        *counter = counter.saturating_add(amount);
     }
     pub fn span(&self, name: &'static str) -> Span<'_> {
         Span {
@@ -106,7 +220,16 @@ impl Diagnostics {
         }
     }
     fn flush_stages(&self) {
-        let stages = std::mem::take(&mut self.state.lock().unwrap().stages);
+        let (stages, counters) = {
+            let mut state = self.state.lock().unwrap();
+            (
+                std::mem::take(&mut state.stages),
+                std::mem::take(&mut state.counters),
+            )
+        };
+        if !counters.is_empty() {
+            self.emit("counters", json!({"values":counters}));
+        }
         for (name, samples) in stages {
             let omitted = samples.calls.saturating_sub(samples.values.len() as u64);
             self.emit("stage", json!({"stage":name,"durationsMs":samples.values,"calls":samples.calls,"totalDurationMs":duration(samples.total),"maximumDurationMs":samples.maximum,"omittedSamples":omitted}));
@@ -156,7 +279,7 @@ impl Diagnostics {
                 state.last_cleanup = t;
             }
             let line =
-                merge(json!({"schema":2,"time":iso(t),"event":event,"runtime":"rust","runtimeVersion":env!("CARGO_PKG_VERSION"),"processStartedAt":iso(self.started_at)}), fields).to_string() + "\n";
+                merge(json!({"schema":3,"time":iso(t),"event":event,"runtime":"rust","runtimeVersion":env!("CARGO_PKG_VERSION"),"processStartedAt":iso(self.started_at),"component":self.component}), fields).to_string() + "\n";
             let info = match std::fs::symlink_metadata(path) {
                 Ok(info) => {
                     if !info.is_file() {
@@ -321,6 +444,9 @@ impl Diagnostics {
         self.emit("lifecycle",json!({"state":if ["started","stopping"].contains(&state){Some(state)}else{None},"mode":if ["demo","live"].contains(&mode){Some(mode)}else{None},"transport":if ["http","stdio"].contains(&transport){Some(transport)}else{None}}))
     }
     pub fn resource(&self) {
+        if self.path.is_none() {
+            return;
+        }
         self.flush_stages();
         #[cfg(target_os = "linux")]
         let rss: Option<u64> =
@@ -356,8 +482,47 @@ impl Diagnostics {
         };
         #[cfg(not(unix))]
         let (user, system): (Option<i64>, Option<i64>) = (None, None);
+        #[allow(
+            unused_mut,
+            reason = "Linux fills optional resource probes; other platforms report unknown"
+        )]
+        let mut native = json!({"peakRssBytes":null,"threads":null,"openFileDescriptors":null,"readBytes":null,"writeBytes":null,"voluntaryContextSwitches":null,"involuntaryContextSwitches":null});
+        #[cfg(target_os = "linux")]
+        {
+            if let Ok(status) = std::fs::read_to_string("/proc/self/status") {
+                for (field, key, multiplier) in [
+                    ("VmHWM:", "peakRssBytes", 1024),
+                    ("Threads:", "threads", 1),
+                    ("voluntary_ctxt_switches:", "voluntaryContextSwitches", 1),
+                    (
+                        "nonvoluntary_ctxt_switches:",
+                        "involuntaryContextSwitches",
+                        1,
+                    ),
+                ] {
+                    if let Some(value) = status.lines().find_map(|line| {
+                        line.strip_prefix(field)
+                            .and_then(|s| s.split_whitespace().next())
+                            .and_then(|s| s.parse::<u64>().ok())
+                    }) {
+                        native[key] = json!(value.saturating_mul(multiplier));
+                    }
+                }
+            }
+            if let Ok(io) = std::fs::read_to_string("/proc/self/io") {
+                for (field, key) in [("read_bytes:", "readBytes"), ("write_bytes:", "writeBytes")] {
+                    native[key] = json!(io.lines().find_map(|line| {
+                        line.strip_prefix(field)
+                            .and_then(|s| s.trim().parse::<u64>().ok())
+                    }));
+                }
+            }
+            if let Ok(files) = std::fs::read_dir("/proc/self/fd") {
+                native["openFileDescriptors"] = json!(files.filter_map(|v| v.ok()).count());
+            }
+        }
         let dropped = self.state.lock().unwrap().dropped;
-        self.emit("resource",json!({"uptimeSeconds":self.started.elapsed().as_secs(),"rssBytes":rss,"heapUsedBytes":null,"externalBytes":null,"cpuUserMicroseconds":user,"cpuSystemMicroseconds":system,"droppedMeasurements":dropped,"runtime":"rust"}));
+        self.emit("resource",merge(json!({"uptimeSeconds":self.started.elapsed().as_secs(),"rssBytes":rss,"heapUsedBytes":null,"externalBytes":null,"cpuUserMicroseconds":user,"cpuSystemMicroseconds":system,"droppedMeasurements":dropped,"runtime":"rust"}),native));
     }
 }
 fn safe_code(code: &str) -> &str {

@@ -83,3 +83,5 @@ Official collection resources provide member lifetime tier progress and next unl
 ## Rust runtime
 
 The MCP server, API client, normalization, caching access, client snapshot reader and optional SSH bridge run in Rust. The Fabric collector remains Java. SQLite and its existing database tables are preserved. Simple setup and logging-report scripts remain shell/Python. See [migration and validation](docs/RUST-MIGRATION.md).
+
+For future performance work, start with the [optimisation runbook](docs/OPTIMISATION.md). Native profiling covers pipeline stages, queues, cache outcomes and volume, process resources and the optional SSH bridge while excluding player data.

@@ -49,3 +49,15 @@ RUSTFLAGS="-C force-frame-pointers=yes" cargo build --locked --profile profiling
 ```
 
 Use your platform's sampling profiler on an isolated **demo-mode** process with a separate private cache. On Linux, `perf record -g -- ./target/profiling/blockcontext --mode demo --transport http --db :memory:` records samples while a local MCP client makes synthetic requests; stop it after the bounded investigation. Keep profiler outputs private. Production binaries remain stripped; stack/allocation sampling is not enabled in production. No Rust allocator-specific allocation profiler is installed or implied by RSS measurements.
+
+## Extensive diagnostics (0.11.2)
+
+Schema 3 adds a fixed component label (`backend` or `bridge`), keeping component and process comparisons separate. The optional bridge `logPath` writes a separate account-only log directory; an unchanged/upload-ready status does not prove that Minecraft is running or its observations are fresh.
+
+Buffered stages now include cache lock waits, SQLite reads/writes, cache JSON parsing/serialization, CPU admission and worker queue waits, game-field mapping, inventory decoding, gzip expansion, NBT validation/parsing, client file reads/validation, upstream budget waits, header/body reads and JSON parsing, auction decoding, bridge projection/SSH uploads, and resource-tick lateness. Synchronous parser scopes restore correctly after nested work or panics and do not cross async task boundaries.
+
+Fixed counters track cache hits/misses, shared loads, cooldowns, stale fallbacks and evictions; byte volumes for cache, upstream, inventories and client snapshots; inventory decode failures; and collector upload successes/failures/unchanged snapshots. No cache keys, SQL text, item attributes, file paths, destinations or error strings enter these records. Counters and timings flush once per minute and on graceful shutdown; a crash can lose the pending interval.
+
+Resource probes include current and lifetime peak RSS, thread/file-descriptor counts, cumulative kernel I/O counters and voluntary/involuntary context switches on Linux, alongside process CPU. Unsupported or unreadable probes remain unknown. These are process-level measurements, not allocation tracking. Raw stage samples remain bounded to 1024 per stage per interval; p50/p95/p99 use retained samples, while maxima and total-call counts cover omitted samples too. Check `coverage` and `omittedSamples` before treating a percentile as representative. Nested durations overlap.
+
+The report accepts `--component backend` or `--component bridge` in addition to runtime filtering. It exposes p50/p95/p99/max, stage coverage, byte volumes, counters and resource gauges. See [the optimisation runbook](OPTIMISATION.md) for a repeatable investigation. Unknown legacy version/component labels are retained rather than guessed.

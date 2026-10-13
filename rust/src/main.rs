@@ -116,9 +116,11 @@ async fn run(args: Args) -> anyhow::Result<()> {
     let metrics = diagnostics.clone();
     let measurements = tokio::spawn(async move {
         let mut tick = tokio::time::interval(Duration::from_secs(60));
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         tick.tick().await;
         loop {
-            tick.tick().await;
+            let due = tick.tick().await;
+            metrics.measure("resource_tick_lag", due.elapsed().as_secs_f64() * 1000.);
             metrics.resource();
         }
     });

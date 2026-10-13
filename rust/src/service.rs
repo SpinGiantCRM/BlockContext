@@ -45,16 +45,18 @@ impl Service {
         limit: usize,
     ) -> Result<Value> {
         let _span = self.upstream.diagnostics.span("client_read");
-        self.client.query(
-            player,
-            profile,
-            section,
-            live,
-            age,
-            offset,
-            limit,
-            self.cache.time(),
-        )
+        crate::diagnostics::scoped(self.upstream.diagnostics.clone(), || {
+            self.client.query(
+                player,
+                profile,
+                section,
+                live,
+                age,
+                offset,
+                limit,
+                self.cache.time(),
+            )
+        })
     }
     pub fn poll_schedule(
         &self,
@@ -380,28 +382,35 @@ impl Service {
                         .await
                         .map(|v| v.value)
                         .unwrap_or(json!({}));
+                    let queue_span = this.upstream.diagnostics.span("cpu_queue_wait");
                     let permit = this.cpu.clone().acquire_owned().await.map_err(|_| {
                         AppError::new("INTERNAL_ERROR", "Decoder pool is unavailable.")
                     })?;
+                    drop(queue_span);
+                    let queued = std::time::Instant::now();
                     let diagnostics = this.upstream.diagnostics.clone();
                     let profiles = tokio::task::spawn_blocking(move || {
+                        diagnostics
+                            .measure("worker_queue_wait", queued.elapsed().as_secs_f64() * 1000.);
                         let _span = diagnostics.span("profile_normalize");
                         let _permit = permit;
-                        arr(&raw)
-                            .iter()
-                            .map(|raw| {
-                                let mut p = normalize::normalize(
-                                    raw,
-                                    &id,
-                                    &catalog,
-                                    &items,
-                                    &metadata,
-                                    &collections,
-                                )?;
-                                stamp(&mut p, retrieved);
-                                Ok(p)
-                            })
-                            .collect::<Result<Vec<_>>>()
+                        crate::diagnostics::scoped(diagnostics.clone(), || {
+                            arr(&raw)
+                                .iter()
+                                .map(|raw| {
+                                    let mut p = normalize::normalize(
+                                        raw,
+                                        &id,
+                                        &catalog,
+                                        &items,
+                                        &metadata,
+                                        &collections,
+                                    )?;
+                                    stamp(&mut p, retrieved);
+                                    Ok(p)
+                                })
+                                .collect::<Result<Vec<_>>>()
+                        })
                     })
                     .await
                     .map_err(|_| {

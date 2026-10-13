@@ -468,7 +468,7 @@ fn native_diagnostics_record_bounded_stages_and_runtime_without_inputs() {
         .collect::<Vec<_>>();
     assert_eq!(rows.len(), 2);
     for row in &rows {
-        assert_eq!(row["schema"], 2);
+        assert_eq!(row["schema"], 3);
         assert_eq!(row["runtime"], "rust");
         assert!(row["processStartedAt"].is_string());
         assert_eq!(row["runtimeVersion"], env!("CARGO_PKG_VERSION"));
@@ -495,4 +495,46 @@ fn stage_sampling_is_bounded_and_reports_omitted_measurements() {
     assert_eq!(row["calls"], 1500);
     assert_eq!(row["omittedSamples"], 476);
     assert_eq!(row["durationsMs"].as_array().unwrap().len(), 1024);
+}
+
+#[test]
+fn diagnostic_scopes_restore_after_nested_work_and_panics() {
+    use blockcontext::diagnostics::{current_count, scoped};
+    let dir = tempfile::tempdir().unwrap();
+    let a = Arc::new(Diagnostics::new(Some(dir.path().join("a.jsonl"))));
+    let b = Arc::new(Diagnostics::new(Some(dir.path().join("b.jsonl"))));
+    scoped(a.clone(), || {
+        current_count("cache_hits", 1);
+        scoped(b.clone(), || current_count("cache_hits", 2));
+        current_count("cache_hits", 1);
+    });
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        scoped(a.clone(), || panic!("synthetic panic"))
+    }));
+    current_count("cache_hits", 999);
+    a.count("private-player-or-key", 123);
+    a.resource();
+    b.resource();
+    for (file, expected) in [("a.jsonl", 2), ("b.jsonl", 2)] {
+        let text = std::fs::read_to_string(dir.path().join(file)).unwrap();
+        assert!(!text.contains("private-player-or-key"));
+        let row: serde_json::Value = serde_json::from_str(text.lines().next().unwrap()).unwrap();
+        assert_eq!(row["values"]["cache_hits"], expected);
+    }
+}
+
+#[test]
+fn inventory_failure_telemetry_has_sizes_and_codes_without_contents() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("usage.jsonl");
+    let d = Arc::new(Diagnostics::new(Some(path.clone())));
+    blockcontext::diagnostics::scoped(d.clone(), || {
+        assert!(blockcontext::inventory::decode_nbt("private-content", 1024, 1024).is_err());
+    });
+    d.resource();
+    let text = std::fs::read_to_string(path).unwrap();
+    assert!(!text.contains("private-content"));
+    let row: serde_json::Value = serde_json::from_str(text.lines().next().unwrap()).unwrap();
+    assert_eq!(row["values"]["inventory_decode_failures"], 1);
+    assert_eq!(row["values"]["inventory_input_bytes"], 15);
 }

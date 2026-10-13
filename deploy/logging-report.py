@@ -3,7 +3,8 @@
 import argparse, collections, datetime, json, math, pathlib, re, time
 TOOLS={'skyblock_profile_context','skyblock_profile_section','skyblock_market_quote','skyblock_auction_quote','skyblock_client_context','skyblock_live_context','skyblock_reference','skyblock_poll_schedule'}
 ENDPOINTS={'identity','profiles','skills','items','rank','garden','bazaar','auctions','collections','museum','bingo','own_auctions','election','news','fire_sales','ended_auctions'}
-STAGES={'cache_read','cache_write','profile_normalize','client_read','rpc_payload_serialize'}
+STAGES={'cache_read','cache_write','profile_normalize','client_read','rpc_payload_serialize','cache_lock_wait','sqlite_read','sqlite_write','cache_json_parse','cache_json_serialize','cpu_queue_wait','worker_queue_wait','field_map','inventory_decode','gzip_expand','nbt_validate','nbt_parse','client_file_read','client_validate','upstream_budget_wait','upstream_headers','upstream_body','upstream_json_parse','auction_decode','bridge_project','bridge_ssh','resource_tick_lag'}
+COUNTERS={'cache_hits','cache_misses','cache_shared_loads','cache_cooldowns','cache_stale_fallbacks','cache_expired_removed','cache_capacity_removed','cache_read_bytes','cache_write_bytes','upstream_requests','upstream_body_bytes','inventory_input_bytes','inventory_expanded_bytes','inventory_decode_failures','client_snapshot_bytes','bridge_unchanged','bridge_uploads','bridge_upload_bytes','bridge_upload_failures','bridge_snapshot_failures','bridge_waiting'}
 
 def number(v):
     return isinstance(v,(int,float)) and not isinstance(v,bool) and math.isfinite(v) and v>=0
@@ -11,7 +12,7 @@ def number(v):
 def timing(values):
     values=sorted(v for v in values if number(v))
     def q(p):return values[max(0,math.ceil(p*len(values))-1)] if values else None
-    return {'count':len(values),'p50Ms':q(.5),'p95Ms':q(.95),'maxMs':max(values,default=None)}
+    return {'count':len(values),'p50Ms':q(.5),'p95Ms':q(.95),'p99Ms':q(.99),'maxMs':max(values,default=None)}
 
 def safe(value,allowed):return value if isinstance(value,str) and value in allowed else 'unknown'
 def code(value):return value if isinstance(value,str) and re.fullmatch(r'[A-Z][A-Z0-9_]{0,63}',value) else 'unknown'
@@ -28,11 +29,11 @@ def classify(rows):
         v=row.get('runtimeVersion')
         if isinstance(v,str) and re.fullmatch(r'\d+\.\d+\.\d+(?:-[a-z0-9.]+)?',v):version=v
         row['_runtime']=active;row['_version']=version
-        start=row.get('processStartedAt'); row['_epoch']=(active,version,start if isinstance(start,str) and len(start)<=64 else epoch)
+        start=row.get('processStartedAt'); row['_epoch']=(active,version,safe(row.get('component'),{'backend','bridge'}),start if isinstance(start,str) and len(start)<=64 else epoch)
     return rows
 
 def summarize(rows):
-    out={'events':len(rows),'tools':{},'upstream':{},'stages':{},'stageTimingsAreOverlapping':True}
+    out={'events':len(rows),'tools':{},'upstream':{},'stages':{},'stageTimingsAreOverlapping':True,'counters':{}}
     def grouped(event,key,allowed):
         groups=collections.defaultdict(list)
         for r in rows:
@@ -62,7 +63,12 @@ def summarize(rows):
             else:samples.append(r.get('durationMs'))
             calls+=r['calls'] if number(r.get('calls')) else 1
             omitted+=r['omittedSamples'] if number(r.get('omittedSamples')) else 0
-        out['stages'][name]={**timing(samples),'totalCalls':calls,'omittedSamples':omitted,'coverage':'sample_limited' if omitted else 'complete'}
+        measured=timing(samples); maxima=[r['maximumDurationMs'] for r in group if number(r.get('maximumDurationMs'))]; measured['maxMs']=max(maxima+[measured['maxMs']],default=None) if measured['maxMs'] is not None else max(maxima,default=None)
+        out['stages'][name]={**measured,'totalCalls':calls,'omittedSamples':omitted,'coverage':'sample_limited' if omitted else 'complete'}
+    for row in rows:
+        if row.get('event')=='counters' and isinstance(row.get('values'),dict):
+            for key,value in row['values'].items():
+                if key in COUNTERS and number(value):out['counters'][key]=out['counters'].get(key,0)+value
     resources=[r for r in rows if r.get('event')=='resource'];rss=[r['rssBytes']/1048576 for r in resources if number(r.get('rssBytes'))]
     cpu=[];previous={}
     for current in resources:
@@ -72,6 +78,10 @@ def summarize(rows):
         elapsed=current['uptimeSeconds']-prev['uptimeSeconds'];used=sum(current[k]-prev[k] for k in fields[1:])
         if elapsed>0 and used>=0:cpu.append(round(used/elapsed/10000,2))
     out['resources']={'samples':len(resources),'rssSamples':len(rss),'peakRssMiB':round(max(rss),1) if rss else None,'cpuIntervals':len(cpu),'peakCpuPercentOfOneCore':max(cpu,default=None),'droppedMeasurements':max((r['droppedMeasurements'] for r in resources if number(r.get('droppedMeasurements'))),default=0)}
+    for field in ['peakRssBytes','threads','openFileDescriptors','readBytes','writeBytes','voluntaryContextSwitches','involuntaryContextSwitches']:
+        values=[r[field] for r in resources if number(r.get(field))]
+        out['resources'][field]={'samples':len(values),'maximum':max(values,default=None)}
+
     out['httpStatuses']=dict(collections.Counter(str(r.get('httpStatus')) if number(r.get('httpStatus')) else 'unknown' for r in rows if r.get('event')=='http'))
     return out
 
@@ -90,13 +100,17 @@ def load(directory,cutoff):
     return [r for r in rows if r['_time']>=cutoff],invalid
 
 def main():
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--hours',type=float,default=24);p.add_argument('--directory',type=pathlib.Path,default=pathlib.Path('/var/log/blockcontext'));p.add_argument('--runtime',choices=['rust','node','unknown']);a=p.parse_args()
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--hours',type=float,default=24);p.add_argument('--directory',type=pathlib.Path,default=pathlib.Path('/var/log/blockcontext'));p.add_argument('--runtime',choices=['rust','node','unknown']);p.add_argument('--component',choices=['backend','bridge','unknown']);a=p.parse_args()
     if not math.isfinite(a.hours) or not 0<a.hours<=336:p.error('--hours must be greater than zero and no more than 336')
     rows,invalid=load(a.directory,time.time()-a.hours*3600)
     if a.runtime:rows=[r for r in rows if r['_runtime']==a.runtime]
-    out={'windowHours':a.hours,'invalidLines':invalid,**summarize(rows),'byRuntime':{}}
+    if a.component:rows=[r for r in rows if safe(r.get('component'),{'backend','bridge'})==a.component]
+    out={'windowHours':a.hours,'invalidLines':invalid,**summarize(rows),'byRuntime':{},'byComponent':{}}
     groups=collections.defaultdict(list)
     for r in rows:groups[r['_runtime']+'@'+r['_version']].append(r)
     for k,group in groups.items():out['byRuntime'][k]=summarize(group)
+    components=collections.defaultdict(list)
+    for r in rows:components[safe(r.get('component'),{'backend','bridge'})].append(r)
+    for k,group in components.items():out['byComponent'][k]=summarize(group)
     print(json.dumps(out,indent=2,sort_keys=True))
 if __name__=='__main__':main()

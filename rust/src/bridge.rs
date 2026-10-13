@@ -247,55 +247,105 @@ pub async fn run(config: &Path) -> anyhow::Result<()> {
         host.to_owned(),
         "sudo /usr/local/bin/blockcontext-import-client-snapshot".into(),
     ]);
+    let log = config
+        .get("logPath")
+        .map(|v| {
+            v.as_str()
+                .map(PathBuf::from)
+                .filter(|p| p.is_absolute())
+                .ok_or_else(|| anyhow::anyhow!("Bridge logPath must be absolute."))
+        })
+        .transpose()?;
+    let diagnostics = std::sync::Arc::new(crate::diagnostics::Diagnostics::new(log).for_bridge());
+    diagnostics.lifecycle("started", "bridge", "ssh");
+    diagnostics.resource();
+    let mut next_resource = std::time::Instant::now() + Duration::from_secs(60);
+    let stop = async {
+        #[cfg(unix)]
+        {
+            let mut term =
+                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                    .expect("Signal handler");
+            tokio::select! { _=term.recv()=>{}, _=tokio::signal::ctrl_c()=>{} }
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = tokio::signal::ctrl_c().await;
+        }
+    };
+    tokio::pin!(stop);
     let mut previous = None;
     let mut last_status = "";
     loop {
         let status = match private_read(&source, 1024 * 1024) {
-            Ok(blob) => match project(&blob, owner, now()) {
-                Ok(blob) => {
-                    let hash = digest(std::str::from_utf8(&blob).unwrap_or(""));
-                    if previous.as_ref() == Some(&hash) {
-                        "ready"
-                    } else {
-                        let result = async {
-                            let mut child = tokio::process::Command::new("ssh")
-                                .args(&args)
-                                .stdin(std::process::Stdio::piped())
-                                .stdout(std::process::Stdio::null())
-                                .stderr(std::process::Stdio::null())
-                                .kill_on_drop(true)
-                                .spawn()?;
-                            let mut stdin = child
-                                .stdin
-                                .take()
-                                .ok_or_else(|| std::io::Error::other("SSH input unavailable"))?;
-                            tokio::io::AsyncWriteExt::write_all(&mut stdin, &blob).await?;
-                            drop(stdin);
-                            let result = child.wait().await?;
-                            if !result.success() {
-                                return Err(std::io::Error::other("Upload unavailable"));
+            Ok(blob) => {
+                let projected = {
+                    let _span = diagnostics.span("bridge_project");
+                    crate::diagnostics::scoped(diagnostics.clone(), || project(&blob, owner, now()))
+                };
+                match projected {
+                    Ok(blob) => {
+                        let hash = digest(std::str::from_utf8(&blob).unwrap_or(""));
+                        if previous.as_ref() == Some(&hash) {
+                            diagnostics.count("bridge_unchanged", 1);
+                            "ready"
+                        } else {
+                            let _span = diagnostics.span("bridge_ssh");
+                            let upload_bytes = blob.len() as u64;
+                            let result = async {
+                                let mut child = tokio::process::Command::new("ssh")
+                                    .args(&args)
+                                    .stdin(std::process::Stdio::piped())
+                                    .stdout(std::process::Stdio::null())
+                                    .stderr(std::process::Stdio::null())
+                                    .kill_on_drop(true)
+                                    .spawn()?;
+                                let mut stdin = child.stdin.take().ok_or_else(|| {
+                                    std::io::Error::other("SSH input unavailable")
+                                })?;
+                                tokio::io::AsyncWriteExt::write_all(&mut stdin, &blob).await?;
+                                drop(stdin);
+                                let result = child.wait().await?;
+                                if !result.success() {
+                                    return Err(std::io::Error::other("Upload unavailable"));
+                                }
+                                Ok(())
+                            };
+                            match tokio::time::timeout(Duration::from_secs(25), result).await {
+                                Ok(Ok(())) => {
+                                    diagnostics.count("bridge_uploads", 1);
+                                    diagnostics.count("bridge_upload_bytes", upload_bytes);
+                                    previous = Some(hash);
+                                    "ready"
+                                }
+                                _ => {
+                                    diagnostics.count("bridge_upload_failures", 1);
+                                    "snapshot_or_upload_unavailable"
+                                }
                             }
-                            Ok(())
-                        };
-                        match tokio::time::timeout(Duration::from_secs(25), result).await {
-                            Ok(Ok(())) => {
-                                previous = Some(hash);
-                                "ready"
-                            }
-                            _ => "snapshot_or_upload_unavailable",
                         }
                     }
+                    Err(_) => {
+                        diagnostics.count("bridge_snapshot_failures", 1);
+                        "snapshot_or_upload_unavailable"
+                    }
                 }
-                Err(_) => "snapshot_or_upload_unavailable",
-            },
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => "waiting_for_snapshot",
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                diagnostics.count("bridge_waiting", 1);
+                "waiting_for_snapshot"
+            }
             Err(_) => "snapshot_or_upload_unavailable",
         };
         if status != last_status {
             println!("BlockContext client bridge: {status}");
             last_status = status;
         }
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        if std::time::Instant::now() >= next_resource {
+            diagnostics.resource();
+            next_resource = std::time::Instant::now() + Duration::from_secs(60);
+        }
+        tokio::select! { _=tokio::time::sleep(Duration::from_secs(2))=>{}, _=&mut stop=>{ diagnostics.resource();diagnostics.lifecycle("stopping","bridge","ssh");return Ok(()) } }
     }
 }
 pub fn import_fixed() -> anyhow::Result<()> {

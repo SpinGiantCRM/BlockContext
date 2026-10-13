@@ -190,6 +190,7 @@ fn normalized_item(i: &Value) -> Value {
     out
 }
 pub fn private_read(path: &Path, max: usize) -> std::io::Result<Vec<u8>> {
+    let _span = crate::diagnostics::current_span("client_file_read");
     let mut options = std::fs::OpenOptions::new();
     options.read(true);
     #[cfg(unix)]
@@ -214,9 +215,11 @@ pub fn private_read(path: &Path, max: usize) -> std::io::Result<Vec<u8>> {
     if blob.len() > max {
         return Err(std::io::Error::other("File limit"));
     }
+    crate::diagnostics::current_count("client_snapshot_bytes", blob.len() as u64);
     Ok(blob)
 }
 pub fn validate_snapshot(v: &Value) -> Option<Value> {
+    let _span = crate::diagnostics::current_span("client_validate");
     let v = project_schema(v, &SCHEMAS["snapshot"], 0)?;
     for p in arr(&v["profiles"]) {
         if obj(&p["observations"]).len() > 96 {

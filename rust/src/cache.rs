@@ -80,7 +80,10 @@ impl Cache {
     }
     pub fn peek(&self, key: &str, max_age: i64) -> Option<Cached> {
         let _span = self.diagnostics.get().map(|d| d.span("cache_read"));
+        let wait = self.diagnostics.get().map(|d| d.span("cache_lock_wait"));
         let db = self.db.lock().ok()?;
+        drop(wait);
+        let read = self.diagnostics.get().map(|d| d.span("sqlite_read"));
         let row: Option<(String, i64)> = db
             .query_row(
                 "SELECT value,fetched_at FROM cache WHERE key=?",
@@ -89,7 +92,12 @@ impl Cache {
             )
             .optional()
             .ok()?;
+        drop(read);
         let (s, t) = row?;
+        if let Some(d) = self.diagnostics.get() {
+            d.count("cache_read_bytes", s.len() as u64);
+        }
+        let _json = self.diagnostics.get().map(|d| d.span("cache_json_parse"));
         if self.time() < t || self.time() - t >= max_age {
             return None;
         }
@@ -114,8 +122,12 @@ impl Cache {
         let time = self.time();
         {
             let db = self.db.lock().unwrap();
-            db.execute("DELETE FROM cache WHERE expires_at<=?", [time])
+            let removed = db
+                .execute("DELETE FROM cache WHERE expires_at<=?", [time])
                 .map_err(db_error)?;
+            if let Some(d) = self.diagnostics.get() {
+                d.count("cache_expired_removed", removed as u64);
+            }
         }
         let existing = self.peek(&key, max_age);
         if existing
@@ -123,27 +135,41 @@ impl Cache {
             .is_some_and(|c| time - c.fetched_at < fresh)
         {
             let mut c = existing.expect("Fresh cache entry checked above");
+            if let Some(d) = self.diagnostics.get() {
+                d.count("cache_hits", 1);
+            }
             c.cache = "fresh";
             return Ok(c);
         }
         if let Some((until, e)) = self.failures.lock().unwrap().get(&key).cloned()
             && until > time
         {
+            if let Some(d) = self.diagnostics.get() {
+                d.count("cache_cooldowns", 1);
+            }
             return self.fallback(existing, e, max_age);
         }
         let flight = {
             let mut flights = self.flights.lock().unwrap();
             if let Some(f) = flights.get(&key) {
+                if let Some(d) = self.diagnostics.get() {
+                    d.count("cache_shared_loads", 1);
+                }
                 f.clone()
             } else {
+                if let Some(d) = self.diagnostics.get() {
+                    d.count("cache_misses", 1);
+                }
                 let this = self.clone();
                 let k = key.clone();
                 let future=async move {
     let result=async {let value=load.await?;let fetched_at=if use_snapshot_time{let retrieved=value.get("retrievedAt").and_then(Value::as_i64).ok_or_else(||AppError::new("SNAPSHOT_EXPIRED","Missing snapshot time."))?;value.get("updatedAt").and_then(Value::as_i64).map(|t|t.min(retrieved)).unwrap_or(retrieved)}else{this.time()};
      if fetched_at>this.time()||this.time()-fetched_at>=max_age{return Err(AppError::retry("SNAPSHOT_EXPIRED","The snapshot expired while being prepared.",15))}
      let _write_span=this.diagnostics.get().map(|d|d.span("cache_write"));
+     let json_span=this.diagnostics.get().map(|d|d.span("cache_json_serialize"));
      let s=serde_json::to_string(&value).map_err(|_|AppError::new("CACHE_INVALID","Invalid snapshot."))?;if s.len()>8*1024*1024{return Err(AppError::new("RESPONSE_TOO_LARGE","The normalized snapshot exceeded its storage limit."))}
-     {let db=this.db.lock().unwrap();db.execute("INSERT INTO cache(key,value,fetched_at,expires_at) VALUES(?,?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,fetched_at=excluded.fetched_at,expires_at=excluded.expires_at",params![k,s,fetched_at,fetched_at+max_age]).map_err(db_error)?;db.execute("DELETE FROM cache WHERE key IN (SELECT key FROM cache ORDER BY fetched_at DESC,key LIMIT -1 OFFSET 512)",[]).map_err(db_error)?;}
+     drop(json_span);if let Some(d)=this.diagnostics.get(){d.count("cache_write_bytes",s.len() as u64);}
+     {let wait=this.diagnostics.get().map(|d|d.span("cache_lock_wait"));let db=this.db.lock().unwrap();drop(wait);let _sql=this.diagnostics.get().map(|d|d.span("sqlite_write"));db.execute("INSERT INTO cache(key,value,fetched_at,expires_at) VALUES(?,?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,fetched_at=excluded.fetched_at,expires_at=excluded.expires_at",params![k,s,fetched_at,fetched_at+max_age]).map_err(db_error)?;let removed=db.execute("DELETE FROM cache WHERE key IN (SELECT key FROM cache ORDER BY fetched_at DESC,key LIMIT -1 OFFSET 512)",[]).map_err(db_error)?;if let Some(d)=this.diagnostics.get(){d.count("cache_capacity_removed",removed as u64);}}
      this.failures.lock().unwrap().remove(&k);Ok(Cached{value,fetched_at,cache:"miss",warning:None})
     }.await;
     let result=match result{Ok(v)=>Ok(v),Err(e)=>{let mut failures=this.failures.lock().unwrap();failures.insert(k.clone(),(this.time()+(e.retry_after_seconds.unwrap_or(0)*1000).clamp(15000,300000) as i64,e.clone()));if failures.len()>512&& let Some(key)=failures.keys().next().cloned(){failures.remove(&key);}drop(failures);this.fallback(existing,e,max_age)}};
@@ -161,6 +187,9 @@ impl Cache {
             && self.time() >= c.fetched_at
             && self.time() - c.fetched_at < max_age
         {
+            if let Some(d) = self.diagnostics.get() {
+                d.count("cache_stale_fallbacks", 1);
+            }
             c.cache = "stale";
             c.warning = Some(format!(
                 "{}: refresh failed; using an explicitly stale snapshot.",

@@ -12,4 +12,7 @@ class ReportTests(unittest.TestCase):
  def test_bounded_stage_samples_preserve_partial_coverage(self):
   rows=r.classify([dict(event='stage',stage='cache_read',durationsMs=[1,2,3],calls=9,omittedSamples=6)])
   x=r.summarize(rows)['stages']['cache_read'];self.assertEqual(x['count'],3);self.assertEqual(x['totalCalls'],9);self.assertEqual(x['omittedSamples'],6);self.assertEqual(x['coverage'],'sample_limited')
+ def test_safe_counters_and_native_gauges(self):
+  rows=r.classify([dict(event='counters',runtime='rust',values={'cache_hits':5,'private-player-name':9,'cache_misses':None}),dict(event='resource',runtime='rust',peakRssBytes=4096,threads=3,openFileDescriptors=7,readBytes=None,writeBytes=20)])
+  x=r.summarize(rows);self.assertEqual(x['counters'],{'cache_hits':5});self.assertEqual(x['resources']['threads']['maximum'],3);self.assertIsNone(x['resources']['readBytes']['maximum']);self.assertNotIn('private-player-name',json.dumps(x))
 if __name__=='__main__':unittest.main()

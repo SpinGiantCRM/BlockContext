@@ -623,35 +623,49 @@ fn nbt_guard(data: &[u8]) -> std::result::Result<(), ()> {
     Ok(())
 }
 pub fn decode_nbt(data: &str, encoded_limit: usize, expanded_limit: usize) -> Result<Value> {
-    let error = || {
-        AppError::new(
-            "INVENTORY_INVALID",
-            "The inventory could not be decoded within safety limits.",
-        )
-    };
-    if data.len() > encoded_limit
-        || !data.len().is_multiple_of(4)
-        || !re("^[A-Za-z0-9+/]*={0,2}$", data)
-    {
-        return Err(error());
+    let _span = crate::diagnostics::current_span("inventory_decode");
+    crate::diagnostics::current_count("inventory_input_bytes", data.len() as u64);
+    let result = (|| {
+        let error = || {
+            AppError::new(
+                "INVENTORY_INVALID",
+                "The inventory could not be decoded within safety limits.",
+            )
+        };
+        if data.len() > encoded_limit
+            || !data.len().is_multiple_of(4)
+            || !re("^[A-Za-z0-9+/]*={0,2}$", data)
+        {
+            return Err(error());
+        }
+        let compressed = base64::engine::general_purpose::STANDARD
+            .decode(data)
+            .map_err(|_| error())?;
+        if compressed.len() > 2 * 1024 * 1024 {
+            return Err(error());
+        }
+        let gzip = crate::diagnostics::current_span("gzip_expand");
+        let mut expanded = Vec::new();
+        flate2::read::GzDecoder::new(compressed.as_slice())
+            .take(expanded_limit as u64 + 1)
+            .read_to_end(&mut expanded)
+            .map_err(|_| error())?;
+        drop(gzip);
+        crate::diagnostics::current_count("inventory_expanded_bytes", expanded.len() as u64);
+        if expanded.len() > expanded_limit {
+            return Err(error());
+        }
+        let guard = crate::diagnostics::current_span("nbt_validate");
+        nbt_guard(&expanded).map_err(|_| error())?;
+        drop(guard);
+        let _parse = crate::diagnostics::current_span("nbt_parse");
+        let OrderedNbt(v) = fastnbt::from_bytes(&expanded).map_err(|_| error())?;
+        Ok(v)
+    })();
+    if result.is_err() {
+        crate::diagnostics::current_count("inventory_decode_failures", 1);
     }
-    let compressed = base64::engine::general_purpose::STANDARD
-        .decode(data)
-        .map_err(|_| error())?;
-    if compressed.len() > 2 * 1024 * 1024 {
-        return Err(error());
-    }
-    let mut expanded = Vec::new();
-    flate2::read::GzDecoder::new(compressed.as_slice())
-        .take(expanded_limit as u64 + 1)
-        .read_to_end(&mut expanded)
-        .map_err(|_| error())?;
-    if expanded.len() > expanded_limit {
-        return Err(error());
-    }
-    nbt_guard(&expanded).map_err(|_| error())?;
-    let OrderedNbt(v) = fastnbt::from_bytes(&expanded).map_err(|_| error())?;
-    Ok(v)
+    result
 }
 pub fn decode(v: &Value) -> Result<Value> {
     if !has(v, "data") {

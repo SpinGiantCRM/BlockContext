@@ -107,6 +107,7 @@ pub fn project_own(v: &Value, depth: usize) -> Result<Value> {
     })
 }
 pub fn map_fields(v: &Value, prefix: &str, scope: &str, max: usize) -> Value {
+    let _span = crate::diagnostics::current_span("field_map");
     struct Walker<'a> {
         fields: Vec<Value>,
         omissions: Vec<Value>,

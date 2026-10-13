@@ -121,6 +121,7 @@ async fn consume(
     expected: usize,
     index: &mut Index,
     deadline: Instant,
+    diagnostics: std::sync::Arc<crate::diagnostics::Diagnostics>,
 ) -> Result<bool> {
     let updated = validate(&raw["lastUpdated"])?;
     let total = raw["totalPages"]
@@ -192,19 +193,24 @@ async fn consume(
         })
         .collect::<Vec<_>>();
     let parse_deadline = deadline.min(Instant::now() + Duration::from_secs(10));
+    let queued = Instant::now();
     let parsed = tokio::task::spawn_blocking(move || {
-        let mut bytes = 0;
-        encoded
-            .iter()
-            .map(|s| {
-                let s = s.as_ref()?;
-                bytes += s.len();
-                if bytes > 16 * 1024 * 1024 || Instant::now() >= parse_deadline {
-                    return None;
-                }
-                decode_listing(s)
-            })
-            .collect::<Vec<_>>()
+        diagnostics.measure("worker_queue_wait", queued.elapsed().as_secs_f64() * 1000.);
+        let _span = diagnostics.span("auction_decode");
+        crate::diagnostics::scoped(diagnostics.clone(), || {
+            let mut bytes = 0;
+            encoded
+                .iter()
+                .map(|s| {
+                    let s = s.as_ref()?;
+                    bytes += s.len();
+                    if bytes > 16 * 1024 * 1024 || Instant::now() >= parse_deadline {
+                        return None;
+                    }
+                    decode_listing(s)
+                })
+                .collect::<Vec<_>>()
+        })
     })
     .await
     .map_err(|_| {
@@ -257,7 +263,7 @@ pub async fn scan(u: Arc<Upstream>, budget: Duration) -> Result<Value> {
     };
     let result = async {
         let raw = fetch_page(&u, 0, &mut index, deadline).await?;
-        consume(&raw, 0, &mut index, deadline).await?;
+        consume(&raw, 0, &mut index, deadline, u.diagnostics.clone()).await?;
         for page in (1..index.total_pages).step_by(2) {
             if Instant::now() >= deadline {
                 return Err(AppError::retry(
@@ -335,7 +341,7 @@ pub async fn scan(u: Arc<Upstream>, budget: Duration) -> Result<Value> {
                 };
                 match result {
                     Ok(raw) => {
-                        if !consume(&raw, *p, &mut index, deadline).await? {
+                        if !consume(&raw, *p, &mut index, deadline, u.diagnostics.clone()).await? {
                             stop = true
                         }
                     }
