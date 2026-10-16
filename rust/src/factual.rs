@@ -21,6 +21,14 @@ static PRIVATE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)(?:^|_)(?:private|uuid|uniqueid|player_id|player_uuid|email|ip|token|secret|password|session|sessions|chat|messages|social_media|coop_invitation|deletion_notice|last_login|last_logout|first_login|first_join|participants|teammates|started_by|claimed_by|who_started|initiator|initiator_name|owner|owners|donator|originator)(?:$|_)").unwrap()
 });
 fn private(k: &str, v: &Value) -> bool {
+    // This exact bestiary mob ID names a dungeon Secret Bat, not a credential.
+    // Accept only a nonnegative safe integer; similarly named keys and text
+    // values must still pass through the private-field filter.
+    if k == "dungeon_secret_bat_1"
+        && n(v).is_some_and(|v| v >= 0. && v.fract() == 0. && v <= 9007199254740991.)
+    {
+        return false;
+    }
     !(n(v).is_some() && ["secret_count", "secrets_found", "token_count"].contains(&k))
         && PRIVATE.is_match(k)
 }

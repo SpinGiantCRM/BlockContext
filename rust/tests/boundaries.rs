@@ -551,3 +551,52 @@ fn bridge_lifecycle_reports_fixed_component_mode_and_transport() {
     assert_eq!(row["mode"], "bridge");
     assert_eq!(row["transport"], "ssh");
 }
+
+#[test]
+fn bestiary_secret_bat_counter_survives_without_exposing_secret_fields() {
+    use blockcontext::factual::{map_fields, project_own};
+    let member = json!({"bestiary":{"kills":{
+        "dungeon_secret_bat_1":42,
+        "dungeon_secret_bat_2":7,
+        "dungeon_secret_bat_1_token":9,
+        "api_secret":"do-not-expose"
+    },"deaths":{"dungeon_secret_bat_1":0}}});
+    let projected = project_own(&member, 0).unwrap();
+    assert_eq!(
+        projected["bestiary"]["kills"],
+        json!({"dungeon_secret_bat_1":42})
+    );
+    assert_eq!(projected["bestiary"]["deaths"]["dungeon_secret_bat_1"], 0);
+    let fields = map_fields(&member, "member", "member", 100);
+    let paths: Vec<_> = fields["fields"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|f| f["path"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        paths,
+        vec![
+            "member.bestiary.kills.dungeon_secret_bat_1",
+            "member.bestiary.deaths.dungeon_secret_bat_1"
+        ]
+    );
+    for invalid in [
+        json!("do-not-expose"),
+        json!({"value":42}),
+        json!([42]),
+        json!(-1),
+        json!(0.5),
+        json!(9007199254740992_u64),
+        json!(null),
+    ] {
+        let value = json!({"dungeon_secret_bat_1":invalid});
+        assert_eq!(project_own(&value, 0).unwrap(), json!({}));
+        assert!(
+            map_fields(&value, "member", "member", 10)["fields"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+    }
+}
