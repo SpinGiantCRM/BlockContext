@@ -4,6 +4,7 @@ pub mod bridge;
 pub mod cache;
 pub mod client;
 pub mod diagnostics;
+pub mod experiments;
 pub mod factual;
 pub mod http;
 pub mod inventory;

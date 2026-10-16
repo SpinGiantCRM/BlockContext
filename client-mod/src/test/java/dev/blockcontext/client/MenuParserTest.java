@@ -70,6 +70,7 @@ public final class MenuParserTest {
         assert MenuParser.commissionEvidence(List.of(new MenuParser.ItemView(8,null,"Other",List.of("Progress: 1/100"),Map.of()))).get("entries").equals(List.of());
         assert MenuParser.commissionEvidence(List.of(new MenuParser.ItemView(27,null,"Commission Milestones",List.of("Completed: 48", "Progress: 48/100"),Map.of()))).toString().contains("completed_counter");
         assert !MenuParser.commissionEvidence(List.of(new MenuParser.ItemView(9,null,"Commission",List.of("uuid aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "send a secret"),Map.of()))).toString().contains("aaaaaa");
+        testExperimentTracking();
         testCommissionTracking();
         testCommissionPersistence();
         var safe=ItemFacts.project(Map.of("uuid","b".repeat(32),"owner","Secret","petInfo",Map.of("type","GOLDEN_DRAGON","exp",12345),"new_item_counter",12));
@@ -81,6 +82,29 @@ public final class MenuParserTest {
         assert changes.size()==1;assert changes.get(0).get("path").equals("inventory.coins");assert changes.get(0).get("previousObservedAt").equals(100L);assert !changes.toString().contains("bbbb");
         assert ObservationChanges.compare("inventory",Map.of(),Map.of("coins",0),100,200).isEmpty();
         System.out.println("MenuParser: duration, profile binding, buffs, menu isolation, Huntaxe slot, bank separation and partial storage checks passed");
+    }
+    private static void testExperimentTracking(){
+        try{
+            var i=new MenuParser.ItemView(10,null,"Experiment Charges",List.of("Charges: 3/3","Next Charge: 1h 20m","Paid Resets Remaining Today: 2","Paid Resets Reset In: 30m","Private message"),Map.of());
+            var parsed=MenuParser.parse("Experimentation Table",List.of(i));
+            assert parsed.get("availableCharges").equals(3L);assert parsed.get("maximumCharges").equals(3L);assert parsed.get("nextChargeSecondsAtObservation").equals(4800L);assert parsed.get("paidResetsRemainingToday").equals(2L);assert parsed.get("paidResetSecondsAtObservation").equals(1800L);assert !parsed.toString().contains("Private");
+            assert MenuParser.parse("Superpairs (Transcendent)",List.of(i)).isEmpty():"puzzle state must not be collected";
+            for(List<String> lines:List.of(List.of("Charges: 1","Charges: 2"),List.of("Charges: 1.5"),List.of("Charges: -1"),List.of("Someone: Charges: 1"),List.of("Charges: 4/3"),List.of("Charges: 101")))assert MenuParser.experimentTable(List.of(new MenuParser.ItemView(10,null,"Charges",lines,Map.of()))).isEmpty():lines;
+            var actual=MenuParser.parse("Experimentation Table",List.of(new MenuParser.ItemView(22,null,"Superpairs",List.of("Charges: 0/3","Next charge in: 23h","Experiments on cooldown!"),Map.of()),new MenuParser.ItemView(31,null,"Renew Experiments",List.of("Purchase 1 additional charge for","the Experimentation Table.","You've renewed 0/3 charges today!","Costs","50 XP Levels","100 Bits"),Map.of())));
+            assert actual.get("availableCharges").equals(0L);assert actual.get("nextChargeSecondsAtObservation").equals(23*3600L);assert actual.get("paidResetsUsedToday").equals(0L);assert actual.get("paidResetsRemainingToday").equals(3L);assert actual.get("maximumPaidResetsToday").equals(3L);
+            assert MenuParser.experimentTable(List.of(new MenuParser.ItemView(31,null,"Other",List.of("You've renewed 0/3 charges today!"),Map.of()))).isEmpty();
+            long t=100000;ExperimentTracker tracker=new ExperimentTracker();tracker.sample(parsed,t);tracker.sample(Map.of("availableCharges",2L),t+1000);tracker.sample(Map.of("availableCharges",2L),t+2000);
+            assert tracker.tracking(true).get("persistentObservedChargeDecreases").equals(1L);tracker.sample(Map.of("availableCharges",3L),t+3000);assert tracker.tracking(true).get("persistentObservedChargeIncreases").equals(1L);
+            tracker.gap();tracker.sample(Map.of("availableCharges",1L),t+4000);assert tracker.tracking(true).get("persistentObservedChargeDecreases").equals(1L):"gaps do not prove uses";
+            String key="0123456789abcdef0123456789abcdef:apple";byte[] bytes=ExperimentLedgerFile.encode(Map.of(key,tracker));var restored=ExperimentLedgerFile.decode(bytes,t+5000).get(key);assert restored.tracking(true).get("persistentObservedChargeDecreases").equals(1L);assert restored.tracking(true).get("restoredFromDisk").equals(true);
+            restored.sample(Map.of("availableCharges",0L),t+6000);assert restored.tracking(true).get("persistentObservedChargeDecreases").equals(1L):"restart drops cannot be counted";
+            restored.sample(Map.of("availableCharges",1L),t+7000);restored.sample(Map.of("availableCharges",0L),t+8000);assert restored.tracking(true).get("persistentObservedChargeDecreases").equals(2L);assert restored.tracking(true).get("completeDailyCount").equals(false);
+            byte[] corrupt=bytes.clone();corrupt[12]^=1;try{ExperimentLedgerFile.decode(corrupt,t+5000);throw new AssertionError("corruption accepted");}catch(java.io.IOException expected){}
+            try{ExperimentLedgerFile.decode(bytes,t-1);throw new AssertionError("future checkpoint accepted");}catch(java.io.IOException expected){}
+            var path=java.nio.file.Files.createTempDirectory("experiment-checkpoint-test-");try{var file=path.resolve("experiments.bin");CommissionLedgerFile.write(file,bytes);assert ExperimentLedgerFile.read(file,t+5000).get(key).tracking(true).get("persistentObservedChargeDecreases").equals(1L);java.nio.file.Files.delete(file);}finally{java.nio.file.Files.delete(path);}
+            assert new ExperimentTracker().tracking(true).get("persistentObservedChargeDecreases").equals(0L):"profile isolation";
+            System.out.println("Experiment tracking: strict menu fields, puzzle exclusion, changes, gaps, restart and private checkpoint checks passed");
+        }catch(java.io.IOException e){throw new AssertionError(e);}
     }
     private static Map<String,Object> commissionSnapshot(boolean daily,boolean ready,int milestone){
         List<MenuParser.ItemView> items=new ArrayList<>();

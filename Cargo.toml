@@ -1,6 +1,6 @@
 [package]
 name = "blockcontext"
-version = "0.11.3"
+version = "0.11.4"
 edition = "2024"
 rust-version = "1.88"
 license = "MIT"
@@ -24,6 +24,10 @@ path = "rust/tests/boundaries.rs"
 [[test]]
 name = "transports"
 path = "rust/tests/transports.rs"
+
+[[test]]
+name = "experiments"
+path = "rust/tests/experiments.rs"
 
 [dependencies]
 anyhow = "1"

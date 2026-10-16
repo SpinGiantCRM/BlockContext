@@ -36,7 +36,8 @@ pub fn observed_activities(client: &Value) -> Vec<Value> {
     rows
 }
 pub fn reconcile(activities: &Value, client: &Value, t: i64) -> Vec<Value> {
-    arr(activities).into_iter().map(|activity|{if activity["activityId"]!="hotm_bonus_commissions"{return activity}
+    arr(activities).into_iter().map(|activity|{if activity["activityId"]=="experimentation"{return crate::experiments::reconcile(&activity,client)}
+if activity["activityId"]!="hotm_bonus_commissions"{return activity}
 let assessment=reset_assessment(client,t);let row=at(client,"observations.commissions");if row.is_null(){return merge(activity,json!({"resetAssessment":assessment}))}
 let values=&row["values"];let current=row["currentStateVerified"]==true;let remaining=nonnegative(&values["remainingBonusCommissions"]).filter(|n|n.fract()==0.&&*n<=100.);let bonus=values["dailyBonusAvailable"].as_bool();let seconds=nonnegative(&values["nextResetSecondsAtObservation"]).filter(|n|n.fract()==0.&&*n<=86400.);let reason=if !current{"saved_observation_does_not_establish_today"}else if values["availabilityEvidence"]=="validated_current_reward_previews"&&remaining==Some(0.){"validated_reward_previews_show_bonus_exhausted"}else if remaining.is_some(){if values["remainingCountEvidence"]=="explicit_counter_minus_observed_claims"{"explicit_counter_minus_observed_claims"}else{"explicit_current_displayed_remaining_counter"}}else{"bonus_marker_does_not_establish_remaining_count"};let replenished=has(values,"bonusRenewalObservedAt");let api=activity["evidence"].clone();merge(activity,json!({"resetAssessment":assessment,"status":if current&&(remaining.is_some()||bonus.is_some()){if remaining.is_some(){"known"}else{"partial"}}else{"unknown"},"remainingCharges":if current{remaining}else{None},"completedToday":if current{remaining.map(|n|n==0.).or_else(||bonus.filter(|b|*b).map(|_|false))}else{None},"dailyBonusAvailable":if current{remaining.map(|n|n>0.).or(bonus)}else{None},"usedCharges":null,"totalDailyCharges":null,"nextReset":null,"source":"client_observation","observedAt":row["observedAt"],"currentStateVerified":current,"lastObservation":{"remainingCharges":remaining,"dailyBonusAvailable":remaining.map(|n|n>0.).or(bonus),"nextResetSecondsAtObservation":seconds,"observedAt":row["observedAt"]},"reasonCode":reason,"claimTracking":{"observedClaimTransitions":values["observedClaimTransitions"],"observedBonusClaimTransitions":values["observedBonusClaimTransitions"],"scope":values["claimCountScope"],"completeDailyCount":false,"completionCounterIsNotClaimCounter":true},"bonusReplenishmentEvidence":if replenished{json!({"observedAfter":values["bonusRenewalAfter"],"observedBy":values["bonusRenewalObservedAt"],"exactResetTimeKnown":false,"fullRemainingCountKnown":false})}else{Value::Null},"resetCoverage":{"status":if seconds.is_some(){"observed"}else{"unknown"},"remainingSecondsAtObservation":seconds,"reasonCode":if seconds.is_some(){"displayed_duration_not_a_verified_live_countdown"}else{"reset_not_displayed_or_verified"}},"apiEvidence":api}))}).collect()
 }
@@ -63,6 +64,8 @@ pub fn data_contract(sections: &Value, client: &Value) -> Value {
                     || ["equipment", "storage"].contains(&domain.as_str())
                         && ["inventory", "huntaxe", "toolkit"].contains(&key.as_str())
                     || domain == "currencies" && key.starts_with("bank:")
+                    || domain == "dailies"
+                        && ["experimentTable", "experimentTracking"].contains(&key.as_str())
             })
             .cloned()
             .collect::<Vec<_>>();

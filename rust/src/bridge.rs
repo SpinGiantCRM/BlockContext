@@ -50,12 +50,13 @@ pub fn project(blob: &[u8], owner: &str, t: i64) -> Result<Vec<u8>> {
                 return Err(invalid());
             }
             if observed
-                < t - if k == "commissionTracking" {
+                < t - if ["commissionTracking", "experimentTracking"].contains(&k.as_str()) {
                     365 * 86400000
                 } else {
                     86400000
                 }
-                || exported < t - 86400000 && k != "commissionTracking"
+                || exported < t - 86400000
+                    && !["commissionTracking", "experimentTracking"].contains(&k.as_str())
             {
                 continue;
             }
@@ -83,9 +84,9 @@ pub fn project(blob: &[u8], owner: &str, t: i64) -> Result<Vec<u8>> {
         return Err(invalid());
     }
     if exported < t - 86400000
-        && !result
-            .iter()
-            .any(|p| has(p, "observations.commissionTracking"))
+        && !result.iter().any(|p| {
+            has(p, "observations.commissionTracking") || has(p, "observations.experimentTracking")
+        })
     {
         return Err(invalid());
     }
@@ -119,6 +120,8 @@ fn known_key(k: &str) -> bool {
         "godPotion",
         "commissions",
         "commissionTracking",
+        "experimentTable",
+        "experimentTracking",
         "commissionMenuEvidence",
         "huntaxe",
         "inventory",

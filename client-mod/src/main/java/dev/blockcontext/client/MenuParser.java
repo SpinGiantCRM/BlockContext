@@ -130,13 +130,34 @@ public final class MenuParser {
             if(m.find()){Map<String,Object> fact=new LinkedHashMap<>();fact.put("label",spec[0]);fact.put("value",Double.parseDouble(m.group(1).replace(",","")));fact.put("maximum",m.group(2)==null?null:Double.parseDouble(m.group(2).replace(",","")));fact.put("unit",null);out.add(fact);}
         }return out;
     }
+    public static Map<String,Object> experimentTable(List<ItemView> slots) {
+        Map<String,Object> out=new LinkedHashMap<>();Set<String> conflicts=new HashSet<>();
+        for(ItemView item:slots)for(String raw:item.lore()) {
+            String line=clean(raw);Matcher charge=Pattern.compile("^(?:(?:Available|Experimentation) Charges|Charges(?: Available)?): (\\d{1,3})(?:/(\\d{1,3}))?$").matcher(line);
+            if(charge.matches()){long n=Long.parseLong(charge.group(1));if(n<=100){unique(out,conflicts,"availableCharges",n);if(charge.group(2)!=null){long max=Long.parseLong(charge.group(2));if(max<=100)unique(out,conflicts,"maximumCharges",max);}}}
+            if(clean(item.name()).equals("Renew Experiments")){
+                Matcher renewed=Pattern.compile("^You've renewed (\\d{1,3})/(\\d{1,3}) charges today!$").matcher(line);
+                if(renewed.matches()){long used=Long.parseLong(renewed.group(1)),max=Long.parseLong(renewed.group(2));if(max<=100&&used<=max){unique(out,conflicts,"paidResetsUsedToday",used);unique(out,conflicts,"maximumPaidResetsToday",max);unique(out,conflicts,"paidResetsRemainingToday",max-used);}}
+            }
+            Matcher paid=Pattern.compile("^(?:Paid|Bits) Resets (Used|Remaining)(?: Today)?: (\\d{1,3})$").matcher(line);
+            if(paid.matches()){long n=Long.parseLong(paid.group(2));if(n<=100)unique(out,conflicts,paid.group(1).equals("Used")?"paidResetsUsedToday":"paidResetsRemainingToday",n);}
+            Matcher timer=Pattern.compile("^(Next Charge(?: In)?|New Charge In|Paid Resets Reset In): (.{1,64})$",Pattern.CASE_INSENSITIVE).matcher(line);
+            if(timer.matches()){Long seconds=duration(timer.group(2));if(seconds!=null&&seconds<=7*86400)unique(out,conflicts,timer.group(1).equalsIgnoreCase("Paid Resets Reset In")?"paidResetSecondsAtObservation":"nextChargeSecondsAtObservation",seconds);}
+        }
+        if(out.get("availableCharges") instanceof Number n&&out.get("maximumCharges") instanceof Number max&&n.longValue()>max.longValue()){out.remove("availableCharges");out.remove("maximumCharges");}
+        return out;
+    }
+    private static void unique(Map<String,Object> out,Set<String> conflicts,String key,long value){
+        if(conflicts.contains(key))return;Object prior=out.putIfAbsent(key,value);if(prior!=null&&!prior.equals(value)){out.remove(key);conflicts.add(key);}
+    }
     public static String kind(String title) {
         title=clean(title);
         if(HUNTAXE_TITLES.contains(title)||title.matches("Huntaxe(?: \\(Slot #\\d{1,2}\\))?"))return "huntaxe";
         if(Set.of("Heart of the Mountain","Heart of the Mountain (1/5)","Commissions","The Forge","Forge","Crystal Nucleus").contains(title))return "mining";
         if(Set.of("Heart of the Forest","Heart of the Forest (1/5)","Whispers").contains(title))return "foraging";
         if(Set.of("Hunting Box","Hunting Attributes","Hunting Traps","Fusion Machine").contains(title))return "hunting";
-        if(Set.of("Experimentation Table","Experiments","Hoppity's Hunt","Chocolate Factory").contains(title))return "dailies";
+        if(Set.of("Experimentation Table","Experiments").contains(title))return "experimentTable";
+        if(Set.of("Hoppity's Hunt","Chocolate Factory").contains(title))return "dailies";
         if(Set.of("Your SkyBlock Profile","Your Skills","SkyBlock Stats").contains(title))return "stats";
         if(Set.of("Pets","Pet Menu","Autopet Rules").contains(title))return "pets";
         if(Set.of("Collection","Collections").contains(title))return "collections";
@@ -161,6 +182,7 @@ public final class MenuParser {
     public static Map<String,Object> parse(String title, List<ItemView> slots) {
         String kind=kind(title);if(kind==null||slots.size()>54)return Map.of();
         Map<String,Object> out=new LinkedHashMap<>();
+        if(kind.equals("experimentTable"))return experimentTable(slots);
         if(kind.equals("huntaxe")) {
             for(ItemView item:slots)if(item.slot()==22&&item.id()!=null&&item.lore().stream().map(MenuParser::clean).anyMatch(l->l.matches("(?:a )?(?:COMMON|UNCOMMON|RARE|EPIC|LEGENDARY|MYTHIC|DIVINE|SPECIAL|VERY SPECIAL) (?:DUNGEON )?(?:SWORD|LONGSWORD|BOW|AXE)(?: a)?"))) { out.put("weapon",item.item());break; }
             // Missing/loading/placeholder slots cannot certify that no weapon is absorbed.

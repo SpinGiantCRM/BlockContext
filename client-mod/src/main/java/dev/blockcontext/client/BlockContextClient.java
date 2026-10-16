@@ -36,6 +36,10 @@ public final class BlockContextClient implements ClientModInitializer {
     private final AtomicReference<byte[]> pending=new AtomicReference<>();
     private final AtomicReference<byte[]> pendingLedger=new AtomicReference<>();
     private Path ledgerFile;
+    private Path experimentLedgerFile;
+    private final Map<String,ExperimentTracker> experimentTrackers=new LinkedHashMap<>();
+    private final AtomicReference<byte[]> pendingExperimentLedger=new AtomicReference<>();
+    private volatile boolean experimentPersistenceAvailable=true;
     private volatile boolean persistenceAvailable=true;
     private final ScheduledExecutorService writer=Executors.newSingleThreadScheduledExecutor(r->{Thread t=new Thread(r,"BlockContext snapshot writer");t.setDaemon(true);return t;});
     private Path output;
@@ -52,6 +56,8 @@ public final class BlockContextClient implements ClientModInitializer {
     @Override public void onInitializeClient() {
         output=FabricLoader.getInstance().getGameDir().resolve("blockcontext/latest.json");
         ledgerFile=output.resolveSibling("commission-ledger.bin");
+        experimentLedgerFile=output.resolveSibling("experiment-ledger.bin");
+        try{experimentTrackers.putAll(ExperimentLedgerFile.read(experimentLedgerFile,System.currentTimeMillis()));}catch(Exception ignored){experimentPersistenceAvailable=false;System.out.println("[BlockContext] Experiment checkpoint unavailable; existing file preserved.");}
         try{commissionTrackers.putAll(CommissionLedgerFile.read(ledgerFile,System.currentTimeMillis()));}catch(Exception ignored){persistenceAvailable=false;System.out.println("[BlockContext] Commission checkpoint unavailable; existing file preserved.");}
         writer.scheduleWithFixedDelay(this::writePending,0,1,TimeUnit.SECONDS);
         ClientReceiveMessageEvents.GAME.register((message,overlay)->{
@@ -112,7 +118,7 @@ public final class BlockContextClient implements ClientModInitializer {
         String uuid=client.getGameProfile().id().toString().replace("-","");String name=client.getGameProfile().name();
         if(!name.matches("[A-Za-z0-9_]{1,16}")) {inactive();return;}
         String key=uuid+":"+profile.toLowerCase(Locale.ROOT);
-        if(lastProfile!=null&&!key.equals(lastProfile))commissionTrackers.values().forEach(CommissionTracker::gap);
+        if(lastProfile!=null&&!key.equals(lastProfile)){commissionTrackers.values().forEach(CommissionTracker::gap);experimentTrackers.values().forEach(ExperimentTracker::gap);}
         Map<String,Object> state=profiles.computeIfAbsent(key,k->{Map<String,Object> p=new LinkedHashMap<>();p.put("uuid",uuid);p.put("playerName",name);p.put("profileName",profile);p.put("observations",new LinkedHashMap<String,Object>());return p;});
         while(profiles.size()>8)profiles.remove(profiles.keySet().iterator().next());
         @SuppressWarnings("unchecked") Map<String,Object> observations=(Map<String,Object>)state.get("observations");
@@ -149,6 +155,7 @@ public final class BlockContextClient implements ClientModInitializer {
                     observe(observations,"commissionMenuEvidence",evidence,"opened_menu",now);
                 }
                 Map<String,Object> value=MenuParser.parse(title,items);
+                if(kind.equals("experimentTable")&&!value.isEmpty())experimentTrackers.computeIfAbsent(key,k->new ExperimentTracker()).sample(value,now);
                 if(kind.equals("buffs"))for(var e:value.entrySet()) { @SuppressWarnings("unchecked") Map<String,Object> v=(Map<String,Object>)e.getValue();observe(observations,e.getKey(),v,"opened_menu",now); }
                 else if(kind.equals("bank"))for(var e:value.entrySet())observe(observations,"bank:"+e.getKey(),Map.of(e.getKey(),e.getValue()),"opened_menu",now);
                 else if(!value.isEmpty())observe(observations,kind.equals("storage")?"storage:"+title:kind,value,"opened_menu",now);
@@ -158,6 +165,8 @@ public final class BlockContextClient implements ClientModInitializer {
         while(commissionTrackers.size()>8)commissionTrackers.remove(commissionTrackers.keySet().iterator().next());
         var tracking=new LinkedHashMap<>(commissionTrackers.computeIfAbsent(key,k->new CommissionTracker()).tracking(now));tracking.put("persistenceAvailable",persistenceAvailable);observe(observations,"commissionTracking",tracking,"collector_ledger",now);
         while(commissionTrackers.size()>8)commissionTrackers.remove(commissionTrackers.keySet().iterator().next());
+        while(experimentTrackers.size()>8)experimentTrackers.remove(experimentTrackers.keySet().iterator().next());
+        if(experimentTrackers.containsKey(key))observe(observations,"experimentTracking",experimentTrackers.get(key).tracking(experimentPersistenceAvailable),"collector_ledger",now);
         // Never retain an unbounded menu history. Each key holds only its latest observation.
         while(observations.size()>96){observations.remove(observations.keySet().iterator().next());evictedObservations++;}
         lastProfile=key;wasActive=true;
@@ -212,11 +221,12 @@ public final class BlockContextClient implements ClientModInitializer {
         if(tag instanceof NumericTag numeric)return numeric.asNumber().orElse(null);
         return tag.asString().orElse(null);
     }
-    private void inactive(){commissionTrackers.values().forEach(CommissionTracker::gap);if(wasActive){wasActive=false;snapshot(false);}lastProfile=null;}
+    private void inactive(){experimentTrackers.values().forEach(ExperimentTracker::gap);commissionTrackers.values().forEach(CommissionTracker::gap);if(wasActive){wasActive=false;snapshot(false);}lastProfile=null;}
     private void snapshot(boolean active) {
         if(profiles.isEmpty())return;
         if(persistenceAvailable)try{pendingLedger.set(CommissionLedgerFile.encode(commissionTrackers));}catch(Exception ignored){persistenceAvailable=false;}
-        Map<String,Object> root=new LinkedHashMap<>();root.put("schemaVersion",1);root.put("collectorVersion","0.3.6");root.put("exportedAt",System.currentTimeMillis());root.put("activeProfile",active?lastProfile:null);root.put("profiles",new ArrayList<>(profiles.values()));root.put("observedNow",active?new ArrayList<>(observedNow):List.of());root.put("exportIntervalMs",1000);root.put("evictedObservations",evictedObservations);
+        if(experimentPersistenceAvailable)try{pendingExperimentLedger.set(ExperimentLedgerFile.encode(experimentTrackers));}catch(Exception ignored){experimentPersistenceAvailable=false;}
+        Map<String,Object> root=new LinkedHashMap<>();root.put("schemaVersion",1);root.put("collectorVersion","0.3.7");root.put("exportedAt",System.currentTimeMillis());root.put("activeProfile",active?lastProfile:null);root.put("profiles",new ArrayList<>(profiles.values()));root.put("observedNow",active?new ArrayList<>(observedNow):List.of());root.put("exportIntervalMs",1000);root.put("evictedObservations",evictedObservations);
         byte[] bytes=JSON.toJson(root).getBytes(java.nio.charset.StandardCharsets.UTF_8);int evicted=0;
         while(bytes.length>1024*1024&&evicted<768) {
             boolean removed=false;for(var profile:profiles.values()){
@@ -228,7 +238,7 @@ public final class BlockContextClient implements ClientModInitializer {
         if(bytes.length<=1024*1024)pending.set(bytes);
     }
     private synchronized void writePending() {
-        byte[] bytes=pending.getAndSet(null);byte[] ledger=pendingLedger.getAndSet(null);if(bytes==null&&ledger==null)return;
+        byte[] bytes=pending.getAndSet(null);byte[] ledger=pendingLedger.getAndSet(null);byte[] experiments=pendingExperimentLedger.getAndSet(null);if(bytes==null&&ledger==null&&experiments==null)return;
         Path temp=null;
         try {
             Files.createDirectories(output.getParent());permissions(output.getParent(),"rwx------");
@@ -237,6 +247,7 @@ public final class BlockContextClient implements ClientModInitializer {
             if(bytes!=null){temp=posix?Files.createTempFile(output.getParent(),".snapshot-",".tmp",PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------"))):Files.createTempFile(output.getParent(),".snapshot-",".tmp");
             Files.write(temp,bytes,StandardOpenOption.TRUNCATE_EXISTING);Files.move(temp,output,StandardCopyOption.REPLACE_EXISTING,StandardCopyOption.ATOMIC_MOVE);}
             if(ledger!=null&&persistenceAvailable)try{CommissionLedgerFile.write(ledgerFile,ledger);}catch(Exception ignored){persistenceAvailable=false;}
+            if(experiments!=null&&experimentPersistenceAvailable)try{CommissionLedgerFile.write(experimentLedgerFile,experiments);}catch(Exception ignored){experimentPersistenceAvailable=false;}
         }catch(Exception ignored){/* Owner data never enters a log on I/O failure. */}finally{if(temp!=null)try{Files.deleteIfExists(temp);}catch(Exception ignored){}}
     }
     private static void permissions(Path p,String mode) throws java.io.IOException {if(Files.getFileStore(p).supportsFileAttributeView("posix"))Files.setPosixFilePermissions(p,PosixFilePermissions.fromString(mode));}

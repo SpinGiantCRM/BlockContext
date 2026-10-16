@@ -287,6 +287,10 @@ pub fn validate_contract(name: &str, v: &Value) -> Option<Value> {
     }
     let v = project_schema(v, &SCHEMAS[name], 0)?;
     match name {
+        "experimentTable" if !crate::experiments::valid_table(&v) => return None,
+        "experimentTracking" if !crate::experiments::valid_tracking(&v, 9007199254740991) => {
+            return None;
+        }
         "item" => {
             if !safe_item(&v) {
                 return None;
@@ -329,7 +333,7 @@ pub fn parse_observation(key: &str, record: &Value) -> Option<(String, Value)> {
     let values = &record["values"];
     let read = record["readFrom"].as_str()?;
     let t = record["observedAt"].integer()?;
-    if read == "collector_ledger" && key != "commissionTracking" {
+    if read == "collector_ledger" && !["commissionTracking", "experimentTracking"].contains(&key) {
         return None;
     }
     let (group, schema) = match key {
@@ -337,6 +341,8 @@ pub fn parse_observation(key: &str, record: &Value) -> Option<(String, Value)> {
         "commissions" => ("mining", "commissions"),
         "commissionTracking" => ("mining", "commissionTracking"),
         "commissionMenuEvidence" => ("mining", "commissionEvidence"),
+        "experimentTable" => ("dailies", "experimentTable"),
+        "experimentTracking" => ("dailies", "experimentTracking"),
         "inventory" | "toolkit" => ("equipment", "observedItems"),
         "minion" => ("minions", "observedItems"),
         "garden" => ("garden", "observedItems"),
@@ -378,6 +384,14 @@ pub fn parse_observation(key: &str, record: &Value) -> Option<(String, Value)> {
     };
     let value = project_schema(values, &SCHEMAS[schema], 0)?;
     match schema {
+        "experimentTable" if read != "opened_menu" || !crate::experiments::valid_table(&value) => {
+            return None;
+        }
+        "experimentTracking"
+            if read != "collector_ledger" || !crate::experiments::valid_tracking(&value, t) =>
+        {
+            return None;
+        }
         "commissionTracking" => {
             if read != "collector_ledger" || !ledger_valid(&value, t) {
                 return None;
@@ -513,12 +527,13 @@ impl Client {
             let age = t - observed;
             if age < 0
                 || age
-                    >= if key == "commissionTracking" {
+                    >= if ["commissionTracking", "experimentTracking"].contains(&key.as_str()) {
                         365 * 86400000
                     } else {
                         86400000
                     }
-                || t - exported >= 86400000 && key != "commissionTracking"
+                || t - exported >= 86400000
+                    && !["commissionTracking", "experimentTracking"].contains(&key.as_str())
             {
                 continue;
             }
@@ -546,7 +561,8 @@ impl Client {
                 .map(|a| a.contains(&json!(key)))
                 .unwrap_or(key == "inventory");
             let tracker = connected && age <= max_age * 1000 && observed_now;
-            let current = key != "commissionTracking" && tracker;
+            let current =
+                !["commissionTracking", "experimentTracking"].contains(&key.as_str()) && tracker;
             if live && !tracker {
                 unavailable_obs[&key] = json!({"reasonCode":"not_currently_observed_or_too_old","ageSeconds":age/1000,"readFrom":record["readFrom"]});
                 continue;
@@ -572,13 +588,20 @@ impl Client {
                 }
             }
             let mut row = json!({"source":"client_observation","status":if age>300000{"stale"}else{"available"},"observedAt":iso(observed),"ageSeconds":age/1000,"readFrom":record["readFrom"],"values":values,"coverage":if key=="huntaxe"||key.starts_with("bank:")||group=="stats"{"only_the_displayed_field"}else if key=="inventory"{"only_current_player_inventory_slots"}else{"partial_only_viewed_menu"},"currentStateVerified":current,"scope":"member"});
-            if key == "commissionTracking" {
+            if ["commissionTracking", "experimentTracking"].contains(&key.as_str()) {
                 row["currentTrackerVerified"] = json!(tracker);
-                row["coverage"] = json!("persistent_partial_claim_ledger");
+                row["coverage"] = json!(if key == "experimentTracking" {
+                    "persistent_partial_charge_ledger"
+                } else {
+                    "persistent_partial_claim_ledger"
+                });
             }
             out[&key] = row;
         }
-        if t - exported >= 86400000 && !has(&out, "commissionTracking") {
+        if t - exported >= 86400000
+            && !has(&out, "commissionTracking")
+            && !has(&out, "experimentTracking")
+        {
             return Ok(unavailable("snapshot_expired_or_future"));
         }
         let (mut fields, mut coverage) = (vec![], json!({}));
@@ -600,7 +623,7 @@ impl Client {
             .collect::<Vec<_>>();
         pagination["fields"] = json!({"offset":offset,"limit":limit,"total":total,"returned":fields.len(),"hasMore":offset+limit<total});
         Ok(
-            json!({"changesSincePreviousObservations":arr(&p["changes"]).into_iter().filter(|c|c["observedAt"].integer().is_some_and(|n|n<=t&&t-n<86400000)).collect::<Vec<_>>(),"changeCoverage":{"maximum":64,"source":"passive_owner_observations","persistentHistory":false,"removedItemsDoNotProveSale":true},"fields":fields,"fieldCoverage":coverage,"source":"client_observation","status":if obj(&out).is_empty(){"unavailable"}else{"partial"},"reasonCode":if obj(&out).is_empty(){"no_valid_recent_observations"}else{"owner_visible_observations"},"player":{"uuid":p["uuid"],"name":p["playerName"]},"profile":{"name":p["profileName"]},"mode":if live{"live"}else{"latest_observations"},"apiRequests":0,"maxAgeSeconds":max_age,"unavailableObservations":unavailable_obs,"pagination":pagination,"collectorCoverage":{"evictedObservations":raw["evictedObservations"].unsigned().unwrap_or(0),"exportIntervalMs":raw["exportIntervalMs"].unsigned().unwrap_or(5000),"onlyReceivedVisibleState":true,"completeProfile":false},"collectorVersion":raw["collectorVersion"],"exportedAt":iso(exported),"connectedAtLastExport":raw["activeProfile"]==active&&t-exported<45000,"observations":out,"warnings":["Owner-only client observations; they are not Hypixel API responses or independently verified values.","Timers are remaining time when observed, not a live countdown. Gameplay can pause effects.","Current inventory, owner state, selected item attributes and displayed HUD/tab/sidebar facts are passive. Server-unsent fields still require a viewed menu or remain unknown. Unviewed storage and minions remain unknown. Ordinary game observations expire after 24 hours; the latest partial commission ledger remains available as dated evidence for up to 365 days. Each key retains only its latest observation."]}),
+            json!({"changesSincePreviousObservations":arr(&p["changes"]).into_iter().filter(|c|c["observedAt"].integer().is_some_and(|n|n<=t&&t-n<86400000)).collect::<Vec<_>>(),"changeCoverage":{"maximum":64,"source":"passive_owner_observations","persistentHistory":false,"removedItemsDoNotProveSale":true},"fields":fields,"fieldCoverage":coverage,"source":"client_observation","status":if obj(&out).is_empty(){"unavailable"}else{"partial"},"reasonCode":if obj(&out).is_empty(){"no_valid_recent_observations"}else{"owner_visible_observations"},"player":{"uuid":p["uuid"],"name":p["playerName"]},"profile":{"name":p["profileName"]},"mode":if live{"live"}else{"latest_observations"},"apiRequests":0,"maxAgeSeconds":max_age,"unavailableObservations":unavailable_obs,"pagination":pagination,"collectorCoverage":{"evictedObservations":raw["evictedObservations"].unsigned().unwrap_or(0),"exportIntervalMs":raw["exportIntervalMs"].unsigned().unwrap_or(5000),"onlyReceivedVisibleState":true,"completeProfile":false},"collectorVersion":raw["collectorVersion"],"exportedAt":iso(exported),"connectedAtLastExport":raw["activeProfile"]==active&&t-exported<45000,"observations":out,"warnings":["Owner-only client observations; they are not Hypixel API responses or independently verified values.","Timers are remaining time when observed, not a live countdown. Gameplay can pause effects.","Current inventory, owner state, selected item attributes and displayed HUD/tab/sidebar facts are passive. Server-unsent fields still require a viewed menu or remain unknown. Unviewed storage and minions remain unknown. Ordinary game observations expire after 24 hours; the latest partial commission and experiment ledgers remain available as dated evidence for up to 365 days. Each key retains only its latest observation."]}),
         )
     }
 }

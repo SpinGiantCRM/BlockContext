@@ -33,7 +33,7 @@ Collector 0.1.0 fails during Fabric startup because its mixin package includes t
 
 ## Build and install
 
-Collector 0.3.6 targets Minecraft **26.2**, Java **25**, Fabric Loader **0.19.5** and Fabric API **0.161.0+26.2**. Other game versions are not validated. The MCP server remains usable with standard stdio and Streamable HTTP clients on their supported systems.
+Collector 0.3.7 targets Minecraft **26.2**, Java **25**, Fabric Loader **0.19.5** and Fabric API **0.161.0+26.2**. Other game versions are not validated. The MCP server remains usable with standard stdio and Streamable HTTP clients on their supported systems.
 
 With an existing Prism Launcher instance containing those dependencies:
 
@@ -110,3 +110,14 @@ A real claim exposed a brief partially updated reward preview while the Commissi
 Run the bridge with `blockcontext bridge --config /absolute/private/path/client-bridge.json`. The private JSON configuration contains `source`, `ownerUuid`, `sshHost` and `sshIdentity`; require Unix mode 0600. It uploads changed latest snapshots, never polls Hypixel, and never controls the game.
 
 The native bridge accepts an optional absolute `logPath` in its private JSON configuration. Use a separate directory and `usage.jsonl` basename, then run the report with `--component bridge`. It records only performance/resource measurements and fixed upload outcome counters. It sends no metrics to the server. See [LOGGING.md](LOGGING.md) and [the optimisation runbook](OPTIMISATION.md).
+
+
+## Experimentation Table usage (0.3.7 / backend 0.11.4)
+
+Read `skyblock_profile_section` with `section: "dailies"` and inspect the `experimentation` activity. Its `apiUsage.games` separates Superpairs (`pairings`), Chronomatron (`simon`) and Ultrasequencer (`numbers`), with per-tier reported claims/attempts and a subtotal of reported claim counters. Missing tiers stay absent, and the subtotal does not certify all uses or today's total. Raw claimed flags, last-attempt values, charge timestamps and paid-reset counters are reported without assuming daily or timer semantics.
+
+The passive `experimentTable` observation reads only the manually opened main `Experimentation Table`/`Experiments` menu, never the puzzle grids. It recognises `Charges: 0/3`, `Next charge in: 23h` and the `Renew Experiments` tooltip's `You've renewed 0/3 charges today!`. Current available charges, displayed capacity, paid renewals used and remaining, and recharge/paid-reset durations stay separately sourced. Remaining renewals are the explicit displayed limit minus the displayed used count. A cooldown marker is not treated as a completed experiment. A rounded `23h` display remains the duration shown, not an exact UTC reset or a live countdown. Unsupported or conflicting lines remain unknown.
+
+`experimentTracking` exposes persistent observed net charge decreases/increases. It is a partial accounting checkpoint, not a count of completed/claimed Superpairs or all experiments today. Replenishment can mask spending. Baselines are invalidated on restart, disconnect/profile change and long sampling gaps; the counters already observed survive. Closing and returning to the table during continuous play can establish a net change, but never an unseen event history. The current menu is required to establish fresh available charges; a fresh tracker heartbeat does not refresh an older menu value.
+
+Checkpoints are stored privately per owner UUID/profile in `blockcontext/experiment-ledger.bin`, using a checksum, bounded eight-profile storage and atomic account-only writes. No pending baseline survives restart. Corrupt, future or insecure files are preserved and persistence is marked unavailable. There is no background API polling, reward/chat capture, puzzle solver or gameplay action. Saved ordinary observations last up to 24 hours; the dated partial ledger is available for up to 365 days. Use `skyblock_live_context` with `section: "dailies"` for client-only polls; it makes zero API requests. `usesToday`, `usedCharges`, `completedToday` and an exact reset remain unknown unless a future verified source supplies them.
